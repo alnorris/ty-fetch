@@ -7,6 +7,13 @@ function init(modules) {
     function create(info) {
         const logger = (msg) => info.project.projectService.logger.info(`[ty-fetch] ${msg}`);
         logger("Plugin initialized");
+        // Register user-provided spec overrides from tsconfig plugin config
+        const userSpecs = info.config?.specs;
+        if (userSpecs && typeof userSpecs === "object") {
+            const projectDir = info.project.getCurrentDirectory();
+            (0, core_1.registerSpecs)(userSpecs, projectDir);
+            logger(`Registered ${Object.keys(userSpecs).length} custom spec(s): ${Object.keys(userSpecs).join(", ")}`);
+        }
         // Proxy all LS methods
         const proxy = Object.create(null);
         for (const k of Object.keys(info.languageService)) {

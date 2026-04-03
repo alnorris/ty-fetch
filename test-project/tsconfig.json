@@ -6,7 +6,12 @@
     "strict": true,
     "lib": ["ES2022", "DOM"],
     "plugins": [
-      { "name": "ty-fetch" }
+      {
+        "name": "ty-fetch/plugin",
+        "specs": {
+          "api.internal.company.com": "./specs/internal-api.json"
+        }
+      }
     ]
   },
   "include": ["*.ts"]

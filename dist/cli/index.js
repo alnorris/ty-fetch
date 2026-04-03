@@ -46,6 +46,12 @@ async function main() {
         process.exit(1);
     }
     const parsedConfig = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(path.resolve(tsconfigPath)));
+    // Load custom spec overrides from tsconfig plugin config
+    const plugins = configFile.config?.compilerOptions?.plugins ?? [];
+    const pluginConfig = plugins.find((p) => p.name === "ty-fetch" || p.name === "ty-fetch/plugin");
+    if (pluginConfig?.specs) {
+        (0, core_1.registerSpecs)(pluginConfig.specs, path.dirname(path.resolve(tsconfigPath)));
+    }
     const program = ts.createProgram(parsedConfig.fileNames, parsedConfig.options);
     // Step 1: Collect all fetch URLs and their domains
     const allCalls = [];

@@ -12,6 +12,28 @@ export const KNOWN_SPECS: Record<string, string> = {
 export const specCache = new Map<string, SpecEntry>();
 
 /**
+ * Register user-provided spec mappings (from tsconfig plugin config).
+ * Values can be URLs (https://...) or file paths (resolved relative to basePath).
+ * These override built-in KNOWN_SPECS for the same domain.
+ */
+export function registerSpecs(
+  specs: Record<string, string>,
+  basePath: string,
+): void {
+  const pathMod = require("path") as typeof import("path");
+  for (const [domain, value] of Object.entries(specs)) {
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      KNOWN_SPECS[domain] = value;
+    } else {
+      // Resolve relative file paths against basePath
+      KNOWN_SPECS[domain] = pathMod.resolve(basePath, value);
+    }
+    // Clear any cached entry so the new source is used
+    specCache.delete(domain);
+  }
+}
+
+/**
  * Ensure a spec is loaded for the given domain.
  * Fires an async fetch if this is the first time seeing the domain.
  * @param onLoaded — called when the spec finishes loading (for triggering side effects)
@@ -96,10 +118,18 @@ export async function fetchSpecForDomain(
   }
 }
 
-async function fetchSpec(url: string): Promise<OpenAPISpec> {
-  const https = await import("https");
+async function fetchSpec(urlOrPath: string): Promise<OpenAPISpec> {
+  // Local file path — read from disk
+  if (!urlOrPath.startsWith("http://") && !urlOrPath.startsWith("https://")) {
+    const fs = require("fs") as typeof import("fs");
+    const data = fs.readFileSync(urlOrPath, "utf-8");
+    return JSON.parse(data);
+  }
+
+  // Remote URL — fetch via HTTPS/HTTP
+  const mod = urlOrPath.startsWith("https://") ? await import("https") : await import("http");
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
+    mod.get(urlOrPath, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         fetchSpec(res.headers.location).then(resolve, reject);
         return;

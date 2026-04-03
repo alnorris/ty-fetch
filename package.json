@@ -1,11 +1,27 @@
 {
   "name": "ty-fetch",
   "version": "0.0.1",
-  "private": true,
-  "main": "dist/plugin/index.js",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "default": "./dist/plugin/index.js"
+    }
+  },
   "bin": {
     "ty-fetch": "dist/cli/index.js"
   },
+  "files": [
+    "dist/",
+    "base.d.ts",
+    "index.js",
+    "index.d.ts"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "build": "tsc -p tsconfig.build.json",

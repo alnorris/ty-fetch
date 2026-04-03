@@ -68,6 +68,35 @@ async function getRepo() {
   return repo;
 }
 
+// ─── Internal API (local spec from tsconfig) ────────────────────────
+
+async function listUsers() {
+  // Typed from local spec — id, email, name, role, createdAt
+  const users = await tf.get("https://api.internal.company.com/users").json();
+  console.log(users[0].email, users[0].role);
+}
+
+async function createUser() {
+  // Body typed — email and name required, role is enum
+  const user = await tf.post("https://api.internal.company.com/users", {
+    body: { email: "alice@company.com", name: "Alice", role: "admin" },
+  }).json();
+  return user;
+}
+
+async function getUser() {
+  // Path params typed
+  const user = await tf.get("https://api.internal.company.com/users/{userId}", {
+    params: { path: { userId: "u_123" } },
+  }).json();
+  console.log(user.name, user.createdAt);
+}
+
+// Wrong path → red squiggle: "Did you mean '/users'?"
+async function internalTypoDemo() {
+  tf.get("https://api.internal.company.com/usres");
+}
+
 // ─── Multiple response formats ──────────────────────────────────────
 
 async function responseFormats() {

@@ -5,7 +5,7 @@ import {
   parseFetchUrl, stripBasePath,
   pathExistsInSpec, findClosestPath, findSpecPath,
   resolveSchemaRef, validateJsonBody,
-  fetchSpecForDomain,
+  fetchSpecForDomain, registerSpecs,
   findFetchCalls,
   type FetchCallInfo, type ValidationDiagnostic,
 } from "../core";
@@ -29,6 +29,14 @@ async function main() {
   }
 
   const parsedConfig = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(path.resolve(tsconfigPath)));
+
+  // Load custom spec overrides from tsconfig plugin config
+  const plugins: Array<{ name?: string; specs?: Record<string, string> }> = configFile.config?.compilerOptions?.plugins ?? [];
+  const pluginConfig = plugins.find((p) => p.name === "ty-fetch" || p.name === "ty-fetch/plugin");
+  if (pluginConfig?.specs) {
+    registerSpecs(pluginConfig.specs, path.dirname(path.resolve(tsconfigPath)));
+  }
+
   const program = ts.createProgram(parsedConfig.fileNames, parsedConfig.options);
 
   // Step 1: Collect all fetch URLs and their domains

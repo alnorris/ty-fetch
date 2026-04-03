@@ -15,7 +15,7 @@ import { resolve } from "path";
 const require = createRequire(import.meta.url);
 
 // Load the plugin init function
-const pluginInit = require("ty-fetch-plugin-poc");
+const pluginInit = require("ty-fetch/plugin");
 const pluginModule = pluginInit({ typescript: ts });
 
 // Set up a minimal language service host

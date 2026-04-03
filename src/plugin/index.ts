@@ -1,7 +1,7 @@
 import type ts from "typescript";
 import { generatePerDomain, type DomainSpec } from "../generate-types";
 import {
-  specCache, ensureSpec,
+  specCache, ensureSpec, registerSpecs,
   parseFetchUrl, getBasePath, stripBasePath,
   pathExistsInSpec, findClosestPath, findSpecPath,
   resolveSchemaRef, validateJsonBody,
@@ -18,6 +18,14 @@ function init(modules: { typescript: typeof import("typescript") }) {
     const logger = (msg: string) =>
       info.project.projectService.logger.info(`[ty-fetch] ${msg}`);
     logger("Plugin initialized");
+
+    // Register user-provided spec overrides from tsconfig plugin config
+    const userSpecs = info.config?.specs as Record<string, string> | undefined;
+    if (userSpecs && typeof userSpecs === "object") {
+      const projectDir = info.project.getCurrentDirectory();
+      registerSpecs(userSpecs, projectDir);
+      logger(`Registered ${Object.keys(userSpecs).length} custom spec(s): ${Object.keys(userSpecs).join(", ")}`);
+    }
 
     // Proxy all LS methods
     const proxy = Object.create(null) as ts.LanguageService;

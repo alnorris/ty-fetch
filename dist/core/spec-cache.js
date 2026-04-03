@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.specCache = exports.KNOWN_SPECS = void 0;
+exports.registerSpecs = registerSpecs;
 exports.ensureSpec = ensureSpec;
 exports.ensureSpecSync = ensureSpecSync;
 exports.fetchSpecForDomain = fetchSpecForDomain;
@@ -43,6 +44,25 @@ exports.KNOWN_SPECS = {
     "api.github.com": "https://api.apis.guru/v2/specs/github.com/api.github.com/1.1.4/openapi.json",
 };
 exports.specCache = new Map();
+/**
+ * Register user-provided spec mappings (from tsconfig plugin config).
+ * Values can be URLs (https://...) or file paths (resolved relative to basePath).
+ * These override built-in KNOWN_SPECS for the same domain.
+ */
+function registerSpecs(specs, basePath) {
+    const pathMod = require("path");
+    for (const [domain, value] of Object.entries(specs)) {
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            exports.KNOWN_SPECS[domain] = value;
+        }
+        else {
+            // Resolve relative file paths against basePath
+            exports.KNOWN_SPECS[domain] = pathMod.resolve(basePath, value);
+        }
+        // Clear any cached entry so the new source is used
+        exports.specCache.delete(domain);
+    }
+}
 /**
  * Ensure a spec is loaded for the given domain.
  * Fires an async fetch if this is the first time seeing the domain.
@@ -111,10 +131,17 @@ async function fetchSpecForDomain(domain, log) {
         return entry;
     }
 }
-async function fetchSpec(url) {
-    const https = await Promise.resolve().then(() => __importStar(require("https")));
+async function fetchSpec(urlOrPath) {
+    // Local file path — read from disk
+    if (!urlOrPath.startsWith("http://") && !urlOrPath.startsWith("https://")) {
+        const fs = require("fs");
+        const data = fs.readFileSync(urlOrPath, "utf-8");
+        return JSON.parse(data);
+    }
+    // Remote URL — fetch via HTTPS/HTTP
+    const mod = urlOrPath.startsWith("https://") ? await Promise.resolve().then(() => __importStar(require("https"))) : await Promise.resolve().then(() => __importStar(require("http")));
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
+        mod.get(urlOrPath, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
             if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 fetchSpec(res.headers.location).then(resolve, reject);
                 return;
