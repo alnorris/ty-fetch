@@ -5,3 +5,4 @@ __generated/
 package-lock.json
 CLAUDE.md
 .claude/
+playground/.vscode/
