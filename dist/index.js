@@ -41,6 +41,8 @@ const KNOWN_SPECS = {
 };
 // In-memory spec cache — persists across diagnostic calls within the same editor session
 const specCache = new Map();
+// Track which URLs we've generated types for — regenerate when this changes
+let lastGeneratedUrls = "";
 function init(modules) {
     const ts = modules.typescript;
     function create(info) {
@@ -128,22 +130,59 @@ function init(modules) {
             }
             if (domainSpecs.length === 0)
                 return;
-            const content = (0, generate_types_1.generateDtsContent)(domainSpecs);
+            // Scan all project files for fetch() URLs
+            const usedUrls = [];
+            const program = info.languageService.getProgram();
+            if (program) {
+                for (const sourceFile of program.getSourceFiles()) {
+                    if (sourceFile.isDeclarationFile)
+                        continue;
+                    const calls = findFetchCalls(sourceFile);
+                    for (const { url } of calls) {
+                        const parsed = parseFetchUrl(url);
+                        if (parsed)
+                            usedUrls.push(parsed);
+                    }
+                }
+            }
+            log(`Found ${usedUrls.length} fetch URL(s) in codebase`);
+            const perDomain = (0, generate_types_1.generatePerDomain)(domainSpecs, usedUrls);
             const projectDir = info.project.getCurrentDirectory();
-            // Resolve the typed-fetch package directory
-            let pkgDir;
+            // Write into the typed-fetch package itself (not @types — TS ignores @types when package has own types)
+            let typesDir;
             try {
                 const pkgJson = require.resolve("typed-fetch/package.json", { paths: [projectDir] });
-                pkgDir = path.dirname(pkgJson);
+                typesDir = path.join(path.dirname(pkgJson), "__generated");
             }
             catch {
                 log("Could not resolve typed-fetch package");
                 return;
             }
-            const outPath = path.join(pkgDir, "__generated.d.ts");
+            fs.mkdirSync(typesDir, { recursive: true });
             try {
-                fs.writeFileSync(outPath, content, "utf-8");
-                log(`Generated ${outPath} with types for ${domainSpecs.length} API(s)`);
+                // Clean old generated .d.ts files
+                for (const existing of fs.readdirSync(typesDir)) {
+                    if (existing.endsWith(".d.ts") && existing !== "index.d.ts") {
+                        fs.unlinkSync(path.join(typesDir, existing));
+                    }
+                }
+                // Write per-domain files
+                const filenames = [];
+                for (const [filename, content] of perDomain.entries()) {
+                    fs.writeFileSync(path.join(typesDir, filename), content, "utf-8");
+                    filenames.push(filename);
+                }
+                // Concat base types + generated augmentations into index.d.ts
+                const augmentations = [];
+                for (const fname of filenames) {
+                    augmentations.push(fs.readFileSync(path.join(typesDir, fname), "utf-8"));
+                }
+                const pkgDir = path.join(typesDir, "..");
+                // Base FIRST, generated SECOND — TS interface merging gives later blocks higher overload priority
+                const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
+                const content = [baseTypes, "", ...augmentations].join("\n");
+                fs.writeFileSync(path.join(pkgDir, "index.d.ts"), content, "utf-8");
+                log(`Generated types for ${filenames.length} API(s): ${filenames.join(", ")}`);
             }
             catch (err) {
                 log(`Failed to write types: ${err}`);
@@ -183,13 +222,30 @@ function init(modules) {
         function findFetchCalls(sourceFile) {
             const results = [];
             function visit(node) {
-                if (ts.isCallExpression(node) &&
-                    ts.isIdentifier(node.expression) &&
-                    (node.expression.text === "fetch" || node.expression.text === "typedFetch") &&
-                    node.arguments.length > 0) {
+                if (ts.isCallExpression(node) && node.arguments.length > 0) {
+                    const expr = node.expression;
+                    let httpMethod = null;
+                    if (ts.isIdentifier(expr) && (expr.text === "fetch" || expr.text === "typedFetch")) {
+                        // fetch("...") — method unknown
+                        httpMethod = null;
+                    }
+                    else if (ts.isPropertyAccessExpression(expr) &&
+                        ts.isIdentifier(expr.expression) &&
+                        ["get", "post", "put", "patch", "delete", "head", "request"].includes(expr.name.text)) {
+                        // *.get("..."), *.post("..."), etc. — matches any identifier (api, ky, tf, http, etc.)
+                        httpMethod = expr.name.text === "request" || expr.name.text === "head" ? null : expr.name.text;
+                    }
+                    else if (ts.isIdentifier(expr)) {
+                        // tf("...") — direct call, method unknown
+                        httpMethod = null;
+                    }
+                    else {
+                        ts.forEachChild(node, visit);
+                        return;
+                    }
                     const arg = node.arguments[0];
                     if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
-                        results.push({ node: arg, url: arg.text });
+                        results.push({ node: arg, url: arg.text, httpMethod });
                     }
                 }
                 ts.forEachChild(node, visit);
@@ -297,6 +353,21 @@ function init(modules) {
                     });
                 }
             }
+            // Check if URLs changed — regenerate types if needed
+            const currentUrls = fetchCalls
+                .map((c) => c.url)
+                .filter((u) => parseFetchUrl(u))
+                .sort()
+                .join("\n");
+            if (currentUrls !== lastGeneratedUrls) {
+                lastGeneratedUrls = currentUrls;
+                try {
+                    regenerateTypes(logger);
+                }
+                catch (e) {
+                    logger(`Type generation failed: ${e}`);
+                }
+            }
             return [...prior, ...extra];
         };
         // ── getCompletionsAtPosition — path autocomplete ────────────────
@@ -308,9 +379,9 @@ function init(modules) {
             const sourceFile = program.getSourceFile(fileName);
             if (!sourceFile)
                 return prior;
-            // Check if cursor is inside a fetch() string argument
+            // Check if cursor is inside a fetch()/api.x() string argument
             const fetchCalls = findFetchCalls(sourceFile);
-            for (const { node, url } of fetchCalls) {
+            for (const { node, url, httpMethod: calledMethod } of fetchCalls) {
                 const textStart = node.getStart() + 1; // after opening quote
                 const textEnd = node.getEnd() - 1; // before closing quote
                 if (position < textStart || position > textEnd)
@@ -321,23 +392,30 @@ function init(modules) {
                 const entry = ensureSpec(parsed.domain);
                 if (entry.status !== "loaded" || !entry.spec)
                     continue;
-                // Provide path completions
-                const pathEntries = Object.entries(entry.spec.paths).map(([path, methods]) => {
-                    const methodList = Object.keys(methods)
-                        .filter((m) => m !== "parameters" && m !== "summary" && m !== "description")
-                        .map((m) => m.toUpperCase())
-                        .join(", ");
-                    return {
-                        name: path,
+                // Build full URL completions (filtered by HTTP method if known)
+                const basePath = getBasePath(entry.spec);
+                const urlPrefix = `https://${parsed.domain}${basePath}`;
+                const pathEntries = [];
+                for (const [specPath, methods] of Object.entries(entry.spec.paths)) {
+                    const availableMethods = Object.keys(methods)
+                        .filter((m) => !["parameters", "summary", "description"].includes(m));
+                    // Filter by called method if known
+                    if (calledMethod && !availableMethods.includes(calledMethod))
+                        continue;
+                    const methodList = availableMethods.map((m) => m.toUpperCase()).join(", ");
+                    const fullUrl = `${urlPrefix}${specPath}`;
+                    pathEntries.push({
+                        name: fullUrl,
                         kind: ts.ScriptElementKind.string,
-                        sortText: "0" + path,
-                        insertText: path,
+                        sortText: "0" + specPath,
+                        replacementSpan: { start: textStart, length: textEnd - textStart },
+                        insertText: fullUrl,
                         labelDetails: { description: methodList },
-                    };
-                });
-                // Filter by what's been typed so far
-                const typed = stripBasePath(parsed.path, entry.spec);
-                const filtered = pathEntries.filter((e) => e.name.startsWith(typed) || typed === "/");
+                    });
+                }
+                // Filter by what the user has typed so far
+                const typedUrl = url;
+                const filtered = pathEntries.filter((e) => e.name.startsWith(typedUrl) || typedUrl.endsWith("/"));
                 return {
                     isGlobalCompletion: false,
                     isMemberCompletion: false,

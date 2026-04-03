@@ -27,6 +27,10 @@ interface OpenAPIOperation {
       description?: string;
     }
   >;
+  requestBody?: {
+    content?: Record<string, { schema?: OpenAPISchema }>;
+    required?: boolean;
+  };
   summary?: string;
 }
 
@@ -37,11 +41,67 @@ interface FullOpenAPISpec {
   info?: { title?: string; version?: string };
 }
 
-interface DomainSpec {
+export interface DomainSpec {
   domain: string;
   baseUrl: string; // e.g. "https://api.stripe.com"
   basePath: string; // e.g. "" or "/api/v3"
   spec: FullOpenAPISpec;
+}
+
+/**
+ * Generate one .d.ts per domain — keeps each file under TS overload limits.
+ * Returns a map of filename → content.
+ */
+const MAX_OVERLOADS_PER_FILE = 400;
+
+/**
+ * Filter spec paths to only those matching URLs seen in the codebase.
+ * usedUrls is a Set of parsed { domain, path } objects.
+ */
+export function generatePerDomain(
+  domainSpecs: DomainSpec[],
+  usedUrls: Array<{ domain: string; path: string }>
+): Map<string, string> {
+  const result = new Map<string, string>();
+
+  // Group used paths by domain
+  const usedByDomain = new Map<string, string[]>();
+  for (const { domain, path } of usedUrls) {
+    const existing = usedByDomain.get(domain) ?? [];
+    existing.push(path);
+    usedByDomain.set(domain, existing);
+  }
+
+  for (const ds of domainSpecs) {
+    const safeDomain = ds.domain.replace(/[^a-zA-Z0-9]/g, "_");
+    const usedPaths = usedByDomain.get(ds.domain) ?? [];
+
+    if (usedPaths.length === 0) continue; // no fetch calls for this domain
+
+    // Filter spec paths to only those that match used URLs
+    const basePath = ds.basePath;
+    const filteredPaths: Record<string, any> = {};
+
+    for (const [specPath, methods] of Object.entries(ds.spec.paths)) {
+      const fullSpecPath = basePath + specPath;
+      const matches = usedPaths.some((usedPath) => {
+        // Exact match
+        if (usedPath === fullSpecPath) return true;
+        // Template match: /repos/{owner}/{repo} matches /repos/anthropics/claude-code
+        const specParts = fullSpecPath.split("/");
+        const usedParts = usedPath.split("/");
+        if (specParts.length !== usedParts.length) return false;
+        return specParts.every((sp, i) => sp.startsWith("{") || sp === usedParts[i]);
+      });
+      if (matches) filteredPaths[specPath] = methods;
+    }
+
+    if (Object.keys(filteredPaths).length === 0) continue;
+
+    const filteredSpec = { ...ds, spec: { ...ds.spec, paths: filteredPaths } };
+    result.set(`${safeDomain}.d.ts`, generateDtsContent([filteredSpec]));
+  }
+  return result;
 }
 
 export function generateDtsContent(domainSpecs: DomainSpec[]): string {
@@ -51,7 +111,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
     "",
   ];
 
-  // Collect all type definitions and overloads
+  // Collect type definitions and overloads — split per domain into separate files
   const typeDefinitions: string[] = [];
   const overloads: string[] = [];
   const typeNameCounter = new Map<string, number>();
@@ -61,7 +121,6 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
     const resolver = (ref: string) => resolveRef(spec, ref);
 
     for (const [path, methods] of Object.entries(spec.paths)) {
-      // Find the first operation with a response schema (prefer GET)
       const methodOrder = ["get", "post", "put", "patch", "delete"];
       const sortedMethods = Object.entries(methods).sort(([a], [b]) => {
         const ai = methodOrder.indexOf(a);
@@ -86,29 +145,35 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         const typeName = count > 0 ? `${baseName}_${count}` : baseName;
 
         const typeBody = schemaToType(schema, resolver, 1);
+        typeDefinitions.push(`  type ${typeName} = ${typeBody};`);
 
-        typeDefinitions.push(`  interface ${typeName} ${typeBody}`);
+        // Check for request body schema (application/json or form-urlencoded)
+        const reqBodySchema =
+          operation.requestBody?.content?.["application/json"]?.schema ??
+          operation.requestBody?.content?.["application/x-www-form-urlencoded"]?.schema;
+
+        let optionsType = "Options";
+        if (reqBodySchema) {
+          const bodyTypeName = `${typeName}_Body`;
+          const bodyTypeBody = schemaToType(reqBodySchema, resolver, 1);
+          typeDefinitions.push(`  type ${bodyTypeName} = ${bodyTypeBody};`);
+          optionsType = `Options<${bodyTypeName}>`;
+        }
+
         overloads.push(
-          `  export function typedFetch(url: \`${escapeTemplateUrl(fullUrl)}\`, init?: RequestInit): Promise<${typeName}>;`
+          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ResponsePromise<${typeName}>;`
         );
-        break; // one overload per path — use the first match (GET preferred)
+        // Don't break — emit an overload per HTTP method
       }
     }
   }
 
-  lines.push("declare module 'typed-fetch' {");
-  lines.push("  // Response types");
-  lines.push(...typeDefinitions);
+  lines.push("// Response types");
+  lines.push(...typeDefinitions.map((l) => l.replace(/^  /, "export ")));
   lines.push("");
-  lines.push("  // Typed overloads (most specific first)");
-  lines.push(...overloads);
-  lines.push("");
-  lines.push(
-    "  // Fallback for unknown URLs",
-    "  export function typedFetch(url: string, init?: RequestInit): Promise<unknown>;",
-  );
+  lines.push("export interface TypedFetch {");
+  lines.push(...overloads.map((l) => l.replace(/^    /, "  ")));
   lines.push("}");
-  lines.push("");
 
   return lines.join("\n");
 }
@@ -129,7 +194,7 @@ function schemaToType(
   depth: number
 ): string {
   // Depth limit to avoid huge nested types
-  if (depth > 3) return "any";
+  if (depth > 2) return "any";
 
   const indent = "  ".repeat(depth + 1);
   const outerIndent = "  ".repeat(depth);
@@ -225,6 +290,7 @@ function sanitizeTypeName(domain: string, path: string, method: string): string 
     .replace(/[{}]/g, "")
     .split("/")
     .filter(Boolean)
+    .map((s) => s.replace(/[^a-zA-Z0-9]/g, "_"))
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join("_");
   const methodPart = method.charAt(0).toUpperCase() + method.slice(1);
@@ -235,7 +301,17 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+const TS_RESERVED = new Set([
+  "break", "case", "catch", "class", "const", "continue", "debugger",
+  "default", "delete", "do", "else", "enum", "export", "extends", "false",
+  "finally", "for", "function", "if", "import", "in", "instanceof", "new",
+  "null", "return", "super", "switch", "this", "throw", "true", "try",
+  "typeof", "var", "void", "while", "with", "as", "implements", "interface",
+  "let", "package", "private", "protected", "public", "static", "yield",
+]);
+
 function safePropName(key: string): string {
+  if (TS_RESERVED.has(key)) return `"${key}"`;
   return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
 }
 

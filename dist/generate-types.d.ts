@@ -23,6 +23,12 @@ interface OpenAPIOperation {
         }>;
         description?: string;
     }>;
+    requestBody?: {
+        content?: Record<string, {
+            schema?: OpenAPISchema;
+        }>;
+        required?: boolean;
+    };
     summary?: string;
 }
 interface FullOpenAPISpec {
@@ -38,11 +44,19 @@ interface FullOpenAPISpec {
         version?: string;
     };
 }
-interface DomainSpec {
+export interface DomainSpec {
     domain: string;
     baseUrl: string;
     basePath: string;
     spec: FullOpenAPISpec;
 }
+/**
+ * Filter spec paths to only those matching URLs seen in the codebase.
+ * usedUrls is a Set of parsed { domain, path } objects.
+ */
+export declare function generatePerDomain(domainSpecs: DomainSpec[], usedUrls: Array<{
+    domain: string;
+    path: string;
+}>): Map<string, string>;
 export declare function generateDtsContent(domainSpecs: DomainSpec[]): string;
 export {};
