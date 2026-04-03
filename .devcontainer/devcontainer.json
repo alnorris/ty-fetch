@@ -1,0 +1,17 @@
+{
+  "name": "ty-fetch playground",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "workspaceFolder": "/workspaces/ty-fetch/playground",
+  "postCreateCommand": "npm install",
+  "postStartCommand": "code example.ts",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true,
+        "explorer.openEditors.visible": 0,
+        "workbench.startupEditor": "none"
+      }
+    }
+  }
+}
