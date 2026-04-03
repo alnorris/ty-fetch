@@ -63,8 +63,6 @@ export interface DomainSpec {
  * Generate one .d.ts per domain — keeps each file under TS overload limits.
  * Returns a map of filename → content.
  */
-const _MAX_OVERLOADS_PER_FILE = 400;
-
 /**
  * Filter spec paths to only those matching URLs seen in the codebase.
  * usedUrls is a Set of parsed { domain, path } objects.

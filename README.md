@@ -1,4 +1,4 @@
-# ⚡ ty-fetch
+# 🙏 ty-fetch
 
 [![npm version](https://img.shields.io/npm/v/ty-fetch.svg)](https://www.npmjs.com/package/ty-fetch)
 [![license](https://img.shields.io/npm/l/ty-fetch.svg)](https://github.com/alnorris/ty-fetch/blob/main/LICENSE)
@@ -352,7 +352,6 @@ npm run check          # lint with biome
 - [ ] Record demo GIF showing autocomplete + typo detection in VS Code
 - [ ] Spec caching to disk (avoid re-fetching on TS server restart)
 - [ ] `ty-fetch generate` CLI command to generate `.d.ts` for `tsc` compatibility
-- [ ] Support OpenAPI 2.0 (Swagger) specs
 
 ## License
 

@@ -2,3 +2,4 @@ node_modules/
 dist/
 __generated/
 *.tgz
+package-lock.json
