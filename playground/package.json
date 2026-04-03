@@ -1,0 +1,15 @@
+{
+  "name": "ty-fetch-playground",
+  "private": true,
+  "description": "Try ty-fetch — open in StackBlitz or clone locally",
+  "scripts": {
+    "dev": "npx tsx example.ts"
+  },
+  "dependencies": {
+    "ty-fetch": "latest",
+    "typescript": "^5.5.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
