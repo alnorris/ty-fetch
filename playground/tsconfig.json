@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "ty-fetch/plugin",
+        "specs": {
+          "jsonplaceholder.typicode.com": "https://fakerestapi.azurewebsites.net/swagger/v1/swagger.json"
+        }
+      }
+    ]
+  },
+  "include": ["*.ts"]
+}

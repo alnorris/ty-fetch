@@ -1,0 +1,9 @@
+{
+  "name": "ty-fetch-playground",
+  "private": true,
+  "description": "Try ty-fetch — open in CodeSandbox or clone locally",
+  "dependencies": {
+    "ty-fetch": "latest",
+    "typescript": "^5.5.0"
+  }
+}
