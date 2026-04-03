@@ -473,7 +473,7 @@ The runtime client (`index.js`) is ~100 lines. The plugin code ships in `dist/` 
 npm run build          # compile TypeScript
 npm run watch          # compile in watch mode
 npm test               # run unit tests (132 tests)
-npm run check          # lint with biome + eslint
+npm run check          # lint with eslint
 ```
 
 ## License
