@@ -40,7 +40,9 @@
     "base.d.ts",
     "index.js",
     "index.d.ts",
-    "plugin.js"
+    "plugin.js",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "tsx --test test/*.test.ts",

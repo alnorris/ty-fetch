@@ -1,6 +1,10 @@
 # ⚡ ty-fetch
 
-**Type-safe `fetch` for TypeScript. Reads your OpenAPI specs, types your API calls. No codegen.**
+[![npm version](https://img.shields.io/npm/v/ty-fetch.svg)](https://www.npmjs.com/package/ty-fetch)
+[![license](https://img.shields.io/npm/l/ty-fetch.svg)](https://github.com/alnorris/ty-fetch/blob/main/LICENSE)
+[![CI](https://github.com/alnorris/ty-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/alnorris/ty-fetch/actions/workflows/ci.yml)
+
+**Type-safe fetch from OpenAPI specs. No codegen, no build step.**
 
 ```bash
 npm install ty-fetch
