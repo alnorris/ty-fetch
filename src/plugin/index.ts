@@ -2,6 +2,7 @@ import type ts from "typescript";
 import {
   ensureSpec,
   findClosestPath,
+  findCreateInstances,
   findFetchCalls,
   findSpecPath,
   getBasePath,
@@ -50,6 +51,40 @@ function init(modules: { typescript: typeof import("typescript") }) {
       info.project.refreshDiagnostics();
     }
 
+    /** Build a map of variable name → prefixUrl from all source files. */
+    function buildInstanceMap(): Map<string, string> {
+      const instanceMap = new Map<string, string>();
+      try {
+        const program = info.languageService.getProgram();
+        if (!program) return instanceMap;
+        for (const sf of program.getSourceFiles()) {
+          if (sf.isDeclarationFile) continue;
+          for (const inst of findCreateInstances(ts, sf)) {
+            instanceMap.set(inst.varName, inst.prefixUrl);
+          }
+        }
+      } catch (e) {
+        logger(`buildInstanceMap failed: ${e}`);
+      }
+      return instanceMap;
+    }
+
+    /** Resolve a fetch call URL to an absolute URL, using the instance map for relative paths. */
+    function resolveUrl(url: string, instanceName: string | null, instanceMap: Map<string, string>): string | null {
+      // Already absolute
+      if (/^https?:\/\//.test(url)) return url;
+      // Relative path — resolve via instance prefixUrl
+      if (instanceName) {
+        const prefix = instanceMap.get(instanceName);
+        if (prefix) {
+          const base = prefix.replace(/\/$/, "");
+          const rel = url.startsWith("/") ? url : `/${url}`;
+          return `${base}${rel}`;
+        }
+      }
+      return null;
+    }
+
     function regenerateTypes(log: (msg: string) => void) {
       const fs = require("node:fs") as typeof import("fs");
       const path = require("node:path") as typeof import("path");
@@ -62,13 +97,16 @@ function init(modules: { typescript: typeof import("typescript") }) {
       }
       if (domainSpecs.length === 0) return;
 
+      const instanceMap = buildInstanceMap();
       const usedUrls: Array<{ domain: string; path: string }> = [];
       const program = info.languageService.getProgram();
       if (program) {
         for (const sf of program.getSourceFiles()) {
           if (sf.isDeclarationFile) continue;
-          for (const { url } of findFetchCalls(ts, sf)) {
-            const parsed = parseFetchUrl(url);
+          for (const call of findFetchCalls(ts, sf)) {
+            const resolved = resolveUrl(call.url, call.instanceName, instanceMap);
+            if (!resolved) continue;
+            const parsed = parseFetchUrl(resolved);
             if (parsed) usedUrls.push(parsed);
           }
         }
@@ -100,7 +138,12 @@ function init(modules: { typescript: typeof import("typescript") }) {
         const augmentations = filenames.map((f) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
         const pkgDir = path.join(typesDir, "..");
         const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
-        fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [baseTypes, "", ...augmentations].join("\n"), "utf-8");
+        // Tighten base method overloads: set TPathParams and TQueryParams to never so the
+        // base overload doesn't match when params are passed — forcing specific overloads to match.
+        const tightenedBase = baseTypes
+          .replace(/options\?: Options<never>\)/g, "options?: Options<never, never, never>)")
+          .replace(/options\?: Options\)/g, "options?: Options<unknown, never, never>)");
+        fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [tightenedBase, "", ...augmentations].join("\n"), "utf-8");
         log(`Generated types for ${filenames.length} API(s): ${filenames.join(", ")}`);
       } catch (err) {
         log(`Failed to write types: ${err}`);
@@ -117,9 +160,12 @@ function init(modules: { typescript: typeof import("typescript") }) {
 
       const calls = findFetchCalls(ts, sourceFile);
       const extra: ts.Diagnostic[] = [];
+      const instanceMap = buildInstanceMap();
 
       for (const call of calls) {
-        const parsed = parseFetchUrl(call.url);
+        const resolvedUrl = resolveUrl(call.url, call.instanceName, instanceMap);
+        if (!resolvedUrl) continue;
+        const parsed = parseFetchUrl(resolvedUrl);
         if (!parsed) continue;
 
         const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
@@ -187,8 +233,8 @@ function init(modules: { typescript: typeof import("typescript") }) {
 
       // Regenerate types when URLs change
       const currentUrls = calls
-        .map((c) => c.url)
-        .filter((u) => parseFetchUrl(u))
+        .map((c) => resolveUrl(c.url, c.instanceName, instanceMap))
+        .filter((u): u is string => u !== null && parseFetchUrl(u) !== null)
         .sort()
         .join("\n");
       if (currentUrls !== lastGeneratedUrls) {
@@ -212,10 +258,13 @@ function init(modules: { typescript: typeof import("typescript") }) {
       if (!sourceFile) return prior;
 
       const calls = findFetchCalls(ts, sourceFile);
+      const instanceMap = buildInstanceMap();
       for (const call of calls) {
         // URL completions
         if (position >= call.urlStart && position <= call.urlStart + call.urlLength) {
-          const parsed = parseFetchUrl(call.url);
+          const resolvedUrl = resolveUrl(call.url, call.instanceName, instanceMap);
+          if (!resolvedUrl) continue;
+          const parsed = parseFetchUrl(resolvedUrl);
           if (!parsed) continue;
 
           const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
@@ -252,7 +301,9 @@ function init(modules: { typescript: typeof import("typescript") }) {
         const inQuery = call.queryObjRange && position > call.queryObjRange.start && position < call.queryObjRange.end;
         const inPath = call.pathObjRange && position > call.pathObjRange.start && position < call.pathObjRange.end;
         if ((inQuery || inPath) && call.httpMethod) {
-          const parsed = parseFetchUrl(call.url);
+          const resolvedUrl2 = resolveUrl(call.url, call.instanceName, instanceMap);
+          if (!resolvedUrl2) continue;
+          const parsed = parseFetchUrl(resolvedUrl2);
           if (!parsed) continue;
           const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
           if (entry.status !== "loaded" || !entry.spec) continue;
@@ -282,6 +333,45 @@ function init(modules: { typescript: typeof import("typescript") }) {
             };
           }
         }
+
+        // Body property completions
+        const inBody = call.bodyObjRange && position > call.bodyObjRange.start && position < call.bodyObjRange.end;
+        if (inBody && call.httpMethod) {
+          const resolvedUrl3 = resolveUrl(call.url, call.instanceName, instanceMap);
+          if (!resolvedUrl3) continue;
+          const parsed = parseFetchUrl(resolvedUrl3);
+          if (!parsed) continue;
+          const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
+          if (entry.status !== "loaded" || !entry.spec) continue;
+          const apiPath = stripBasePath(parsed.path, entry.spec);
+          const specPath = findSpecPath(apiPath, entry.spec);
+          if (!specPath) continue;
+          const operation = entry.spec.paths[specPath]?.[call.httpMethod];
+          const reqSchema =
+            operation?.requestBody?.content?.["application/json"]?.schema ??
+            operation?.requestBody?.content?.["application/x-www-form-urlencoded"]?.schema;
+          if (!reqSchema) continue;
+          const resolved = resolveSchemaRef(reqSchema, entry.spec);
+          if (!resolved?.properties) continue;
+          const existingNames = new Set((call.jsonBody ?? []).map((p) => p.name));
+          const requiredSet = new Set(resolved.required ?? []);
+          const entries: ts.CompletionEntry[] = Object.keys(resolved.properties)
+            .filter((name) => !existingNames.has(name))
+            .map((name) => ({
+              name,
+              kind: ts.ScriptElementKind.memberVariableElement,
+              sortText: requiredSet.has(name) ? `0${name}` : `1${name}`,
+              labelDetails: { description: requiredSet.has(name) ? "(required)" : "(optional)" },
+            }));
+          if (entries.length > 0) {
+            return {
+              isGlobalCompletion: false,
+              isMemberCompletion: true,
+              isNewIdentifierLocation: false,
+              entries: [...entries, ...(prior?.entries ?? [])],
+            };
+          }
+        }
       }
       return prior;
     };
@@ -295,9 +385,12 @@ function init(modules: { typescript: typeof import("typescript") }) {
       if (!sourceFile) return prior;
 
       const calls = findFetchCalls(ts, sourceFile);
+      const instanceMap = buildInstanceMap();
       for (const call of calls) {
         if (position < call.urlStart || position > call.urlStart + call.urlLength) continue;
-        const parsed = parseFetchUrl(call.url);
+        const resolvedUrl = resolveUrl(call.url, call.instanceName, instanceMap);
+        if (!resolvedUrl) continue;
+        const parsed = parseFetchUrl(resolvedUrl);
         if (!parsed) continue;
 
         const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);

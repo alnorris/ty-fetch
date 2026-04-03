@@ -22,6 +22,8 @@ export interface ParsedUrl {
 export interface FetchCallInfo {
   url: string;
   httpMethod: string | null;
+  /** The identifier used for the call (e.g. "petstore" in petstore.get()) */
+  instanceName: string | null;
   /** Position of the URL string in the source (after opening quote) */
   urlStart: number;
   /** Length of the URL string (excluding quotes) */
@@ -39,6 +41,13 @@ export interface FetchCallInfo {
   queryObjRange: { start: number; end: number } | null;
   /** Position range of the path object literal (for completions) */
   pathObjRange: { start: number; end: number } | null;
+  /** Position range of the body object literal (for completions) */
+  bodyObjRange: { start: number; end: number } | null;
+}
+
+export interface CreateInstanceInfo {
+  varName: string;
+  prefixUrl: string;
 }
 
 export interface ParamProperty {

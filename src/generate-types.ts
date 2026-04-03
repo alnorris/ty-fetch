@@ -252,10 +252,23 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         }
 
         const optionsType = `Options<${bodyTypeArg}, ${pathParamsArg}, ${queryParamsArg}, ${headersArg}>`;
+        const resultType = `Promise<FetchResult<${typeName}>>`;
 
+        // Full URL overload (for direct ty.get("https://...") calls)
         overloads.push(
-          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): Promise<FetchResult<${typeName}>>;`,
+          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ${resultType};`,
         );
+        // Relative path overloads (for ty.create({ prefixUrl }) instance calls)
+        const relWithBase = `${basePath}${path}`;
+        overloads.push(
+          `    ${method}(url: \`${escapeTemplateUrl(relWithBase)}\`, options?: ${optionsType}): ${resultType};`,
+        );
+        if (basePath) {
+          // Also emit without basePath for instances that include basePath in prefixUrl
+          overloads.push(
+            `    ${method}(url: \`${escapeTemplateUrl(path)}\`, options?: ${optionsType}): ${resultType};`,
+          );
+        }
         // Don't break — emit an overload per HTTP method
       }
     }

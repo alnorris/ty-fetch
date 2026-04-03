@@ -143,3 +143,27 @@ describe("generatePerDomain", () => {
     assert.match(content, /PetId_Get/);
   });
 });
+
+describe("relative path overloads for ty.create instances", () => {
+  const result = generateDtsContent([ds]);
+
+  it("generates full URL overload", () => {
+    assert.match(result, /get\(url: `https:\/\/petstore\.io\/api\/v3\/pet\/findByStatus`/);
+  });
+
+  it("generates relative path with basePath overload", () => {
+    assert.match(result, /get\(url: `\/api\/v3\/pet\/findByStatus`/);
+  });
+
+  it("generates relative path without basePath overload", () => {
+    assert.match(result, /get\(url: `\/pet\/findByStatus`/);
+  });
+
+  it("generates relative overloads for POST with body types", () => {
+    assert.match(result, /post\(url: `\/pet`.*Options<Petstore_Pet_Post_Body/);
+  });
+
+  it("generates relative overloads for parameterized paths", () => {
+    assert.match(result, /get\(url: `\/pet\/\$\{string\}`.*Options<never, Petstore_Pet_PetId_Get_PathParams/);
+  });
+});

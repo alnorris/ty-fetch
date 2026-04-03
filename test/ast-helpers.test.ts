@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import ts from "typescript";
-import { findFetchCalls } from "../src/core/index";
+import { findCreateInstances, findFetchCalls } from "../src/core/index";
 
 function parse(code: string) {
   return ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
@@ -191,5 +191,73 @@ describe("findFetchCalls", () => {
     const param = calls[0].queryParams![0];
     const nameInCode = code.substring(param.nameStart, param.nameStart + param.nameLength);
     assert.equal(nameInCode, "status");
+  });
+
+  it("captures instanceName for property access calls", () => {
+    const sf = parse(`petstore.get("/pet/findByStatus");`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].instanceName, "petstore");
+    assert.equal(calls[0].url, "/pet/findByStatus");
+  });
+
+  it("instanceName is null for plain fetch() calls", () => {
+    const sf = parse(`fetch("https://x.com/api");`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls[0].instanceName, null);
+  });
+
+  it("sets bodyObjRange for body object", () => {
+    const code = `tf.post("https://x.com/api", { body: { name: "John" } });`;
+    const sf = parse(code);
+    const calls = findFetchCalls(ts, sf);
+    assert.ok(calls[0].bodyObjRange);
+    const slice = code.substring(calls[0].bodyObjRange.start, calls[0].bodyObjRange.end);
+    assert.equal(slice, `{ name: "John" }`);
+  });
+
+  it("bodyObjRange is null when no body", () => {
+    const sf = parse(`tf.get("https://x.com/api");`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls[0].bodyObjRange, null);
+  });
+});
+
+describe("findCreateInstances", () => {
+  it("finds ty.create with prefixUrl", () => {
+    const sf = parse(`const petstore = ty.create({ prefixUrl: "https://petstore3.swagger.io/api/v3" });`);
+    const instances = findCreateInstances(ts, sf);
+    assert.equal(instances.length, 1);
+    assert.equal(instances[0].varName, "petstore");
+    assert.equal(instances[0].prefixUrl, "https://petstore3.swagger.io/api/v3");
+  });
+
+  it("finds multiple create instances", () => {
+    const sf = parse(`
+      const petstore = ty.create({ prefixUrl: "https://petstore3.swagger.io/api/v3" });
+      const stripe = api.create({ prefixUrl: "https://api.stripe.com" });
+    `);
+    const instances = findCreateInstances(ts, sf);
+    assert.equal(instances.length, 2);
+    assert.equal(instances[0].varName, "petstore");
+    assert.equal(instances[1].varName, "stripe");
+  });
+
+  it("ignores create calls without prefixUrl", () => {
+    const sf = parse(`const client = ty.create({ headers: { "Authorization": "Bearer x" } });`);
+    const instances = findCreateInstances(ts, sf);
+    assert.equal(instances.length, 0);
+  });
+
+  it("ignores non-create calls", () => {
+    const sf = parse(`const result = ty.get("https://x.com/api");`);
+    const instances = findCreateInstances(ts, sf);
+    assert.equal(instances.length, 0);
+  });
+
+  it("ignores create with non-string prefixUrl", () => {
+    const sf = parse(`const client = ty.create({ prefixUrl: someVar });`);
+    const instances = findCreateInstances(ts, sf);
+    assert.equal(instances.length, 0);
   });
 });

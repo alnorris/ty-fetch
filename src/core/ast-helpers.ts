@@ -1,4 +1,4 @@
-import type { FetchCallInfo, JsonBodyProperty, ParamProperty } from "./types";
+import type { CreateInstanceInfo, FetchCallInfo, JsonBodyProperty, ParamProperty } from "./types";
 
 type TS = typeof import("typescript");
 type SourceFile = import("typescript").SourceFile;
@@ -21,6 +21,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
     if (ts.isCallExpression(node) && node.arguments.length > 0) {
       const expr = node.expression;
       let httpMethod: string | null = null;
+      let instanceName: string | null = null;
 
       if (ts.isIdentifier(expr) && (expr.text === "fetch" || expr.text === "typedFetch")) {
         httpMethod = null;
@@ -30,6 +31,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
         ["get", "post", "put", "patch", "delete", "head", "request"].includes(expr.name.text)
       ) {
         httpMethod = expr.name.text === "request" || expr.name.text === "head" ? null : expr.name.text;
+        instanceName = expr.expression.text;
       } else if (ts.isIdentifier(expr)) {
         httpMethod = null;
       } else {
@@ -47,6 +49,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
         let pathParams: ParamProperty[] | null = null;
         let queryObjRange: { start: number; end: number } | null = null;
         let pathObjRange: { start: number; end: number } | null = null;
+        let bodyObjRange: { start: number; end: number } | null = null;
         if (node.arguments.length >= 2) {
           const optionsArg = node.arguments[1];
           if (ts.isObjectLiteralExpression(optionsArg)) {
@@ -55,6 +58,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
             ) as import("typescript").PropertyAssignment | undefined;
             if (jsonProp && ts.isObjectLiteralExpression(jsonProp.initializer)) {
               jsonBody = extractJsonProperties(ts, sourceFile, jsonProp.initializer);
+              bodyObjRange = { start: nodeStart(jsonProp.initializer), end: jsonProp.initializer.getEnd() };
             }
 
             // Extract params.query and params.path
@@ -79,6 +83,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
         results.push({
           url: arg.text,
           httpMethod,
+          instanceName,
           urlStart,
           urlLength,
           callStart: nodeStart(node),
@@ -88,6 +93,7 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
           pathParams,
           queryObjRange,
           pathObjRange,
+          bodyObjRange,
         });
       }
     }
@@ -148,6 +154,50 @@ function extractJsonProperties(
     });
   }
   return props;
+}
+
+/**
+ * Find all ty.create({ prefixUrl: "..." }) calls and map variable names to their prefixUrl.
+ */
+export function findCreateInstances(ts: TS, sourceFile: SourceFile): CreateInstanceInfo[] {
+  const results: CreateInstanceInfo[] = [];
+
+  function visit(node: Node) {
+    // Match: const foo = <expr>.create({ prefixUrl: "..." })
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isCallExpression(node.initializer)
+    ) {
+      const call = node.initializer;
+      const expr = call.expression;
+      // Match <identifier>.create(...)
+      if (
+        ts.isPropertyAccessExpression(expr) &&
+        ts.isIdentifier(expr.name) &&
+        expr.name.text === "create" &&
+        call.arguments.length >= 1
+      ) {
+        const arg = call.arguments[0];
+        if (ts.isObjectLiteralExpression(arg)) {
+          const prefixProp = arg.properties.find(
+            (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "prefixUrl",
+          ) as import("typescript").PropertyAssignment | undefined;
+          if (prefixProp && ts.isStringLiteral(prefixProp.initializer)) {
+            results.push({
+              varName: node.name.text,
+              prefixUrl: prefixProp.initializer.text,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return results;
 }
 
 function extractParamNames(
