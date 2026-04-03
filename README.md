@@ -6,6 +6,8 @@
 
 **Type-safe fetch from OpenAPI specs. No codegen, no build step.**
 
+A tiny, zero-dependency HTTP client — a thin wrapper around the Fetch API — with a TypeScript plugin that automatically types your API calls from OpenAPI specs.
+
 ```bash
 npm install ty-fetch
 ```
@@ -138,61 +140,144 @@ JSON and YAML specs both supported. Custom specs override auto-discovery for the
 
 ---
 
-## 🔧 Usage
+## 📖 API Reference
+
+### `import tf from "ty-fetch"`
+
+The default export is a pre-configured `TyFetch` instance. All methods return a `ResponsePromise`.
+
+### HTTP Methods
 
 ```ts
-import tf from "ty-fetch";
-
-// 📥 GET — response is fully typed
-const users = await tf.get("https://api.mycompany.com/v1/users").json();
-
-// 📤 POST — body is validated against the spec
-const user = await tf.post("https://api.mycompany.com/v1/users", {
-  body: { name: "Jane Doe", email: "jane@example.com" },
-}).json();
-
-// 🔗 Path params — typed from the spec's {param} placeholders
-const user = await tf.get("https://api.mycompany.com/v1/users/{id}", {
-  params: { path: { id: "123" } },
-}).json();
-
-// 🔍 Query params — typed from the spec's parameter definitions
-const results = await tf.get("https://api.mycompany.com/v1/users", {
-  params: { query: { role: "admin", limit: 10 } },
-}).json();
-
-// 🔑 Headers — required API keys typed from security schemes
-const data = await tf.get("https://api.mycompany.com/v1/data", {
-  headers: { "x-api-key": process.env.API_KEY },
-}).json();
+tf.get(url, options?)      // GET
+tf.post(url, options?)     // POST
+tf.put(url, options?)      // PUT
+tf.patch(url, options?)    // PATCH
+tf.delete(url, options?)   // DELETE
+tf.head(url, options?)     // HEAD
+tf(url, options?)          // Custom method (set options.method)
 ```
 
-### Response methods
+When the plugin is active, the `url` parameter and all options are **typed from the OpenAPI spec** for the matching endpoint. Without the plugin, everything still works — just untyped.
 
-| Method | Returns |
+### Options
+
+```ts
+tf.get("https://api.example.com/v1/users/{id}", {
+  // Path params — replaces {placeholders} in the URL
+  params: {
+    path: { id: "123" },
+    query: { include: "profile", limit: 10 },
+  },
+
+  // JSON request body (auto-serialized, Content-Type set automatically)
+  body: { name: "Jane", email: "jane@example.com" },
+
+  // Headers (typed from security schemes when plugin is active)
+  headers: { "x-api-key": "sk_live_..." },
+
+  // Prefix URL — prepended to the url argument
+  prefixUrl: "https://api.example.com",
+
+  // All standard fetch options are supported
+  signal: AbortSignal.timeout(5000),
+  cache: "no-store",
+  credentials: "include",
+})
+```
+
+The `Options` type extends `RequestInit` (standard fetch options) with these additions:
+
+| Option | Type | Description |
+|---|---|---|
+| `body` | `object` | JSON body — auto-serialized, `Content-Type: application/json` set |
+| `params.path` | `object` | Replaces `{placeholder}` segments in the URL |
+| `params.query` | `object` | Appended as `?key=value` query string |
+| `headers` | `object` | HTTP headers (typed from spec security schemes) |
+| `prefixUrl` | `string` | Prepended to the URL (useful with `create`/`extend`) |
+
+### ResponsePromise
+
+Every method returns a `ResponsePromise<T>`, where `T` is the response type from the spec.
+
+```ts
+const promise = tf.get("https://api.example.com/v1/users");
+
+// Parse as typed JSON
+const users = await promise.json();        // Promise<T>
+
+// Or use other formats
+const text = await promise.text();         // Promise<string>
+const blob = await promise.blob();         // Promise<Blob>
+const buf = await promise.arrayBuffer();   // Promise<ArrayBuffer>
+const form = await promise.formData();     // Promise<FormData>
+
+// Or await directly (same as .json())
+const users = await promise;               // T
+```
+
+Non-2xx responses throw an `HTTPError` automatically before any parsing.
+
+### Error Handling
+
+```ts
+import tf, { HTTPError } from "ty-fetch";
+
+try {
+  const data = await tf.get("https://api.example.com/v1/users").json();
+} catch (error) {
+  if (error instanceof HTTPError) {
+    console.log(error.response.status);  // 404, 500, etc.
+    console.log(error.message);          // "404 Not Found"
+    const body = await error.response.json(); // error response body
+  }
+}
+```
+
+### Creating Instances
+
+Create pre-configured instances with default options:
+
+```ts
+// Create a new instance with defaults
+const api = tf.create({
+  prefixUrl: "https://api.mycompany.com",
+  headers: { "x-api-key": process.env.API_KEY },
+});
+
+// Now use short paths
+const users = await api.get("/v1/users").json();
+const user = await api.post("/v1/users", {
+  body: { name: "Jane" },
+}).json();
+
+// Extend an existing instance (merges options)
+const adminApi = api.extend({
+  headers: { "x-admin-token": process.env.ADMIN_TOKEN },
+});
+```
+
+| Method | Description |
 |---|---|
-| `.json()` | `Promise<T>` — typed from spec |
-| `.text()` | `Promise<string>` |
-| `.blob()` | `Promise<Blob>` |
-| `.arrayBuffer()` | `Promise<ArrayBuffer>` |
-| `await` directly | `T` — same as `.json()` |
+| `tf.create(defaults)` | Create a new instance with default options |
+| `tf.extend(defaults)` | Create a new instance, merging with current defaults |
 
----
+### Plugin Features (editor only)
 
-## 🚀 Features
+When the TS plugin is active, you get these extras on top of the runtime API:
 
-- 🔮 **Zero codegen** — types generated on-the-fly by a TS plugin, not a build step
-- 🔍 **Auto-discovery** — finds OpenAPI specs at well-known paths automatically
-- 📦 **Typed responses** — `.json()` returns the actual response type
-- ✏️ **Typed request bodies** — body params validated against the schema
-- 🔗 **Typed path & query params** — based on the endpoint definition
-- 🔑 **Typed headers** — required API keys from security schemes
-- 🚨 **Path validation** — red squiggles for typos, with "did you mean?" suggestions
-- 💡 **Autocomplete** — URL path completions inside string literals
-- 📖 **JSDoc descriptions** — property descriptions from the spec in hover tooltips
-- 📄 **YAML + JSON** — specs can be either format, local files or remote URLs
-- 🧠 **Example inference** — generates types from response `example` when `schema` is missing
-- ⚡ **On-demand** — only fetches specs for APIs you actually call in your code
+| Feature | What it does |
+|---|---|
+| **Typed responses** | `.json()` returns the spec's response type, not `any` |
+| **Typed body** | `body` option is validated against the spec's request body schema |
+| **Typed query params** | `params.query` keys and types from the spec's parameter definitions |
+| **Typed path params** | `params.path` keys from `{placeholder}` segments |
+| **Typed headers** | Required headers from the spec's security schemes |
+| **Path validation** | Red squiggles on invalid API paths with "did you mean?" |
+| **Autocomplete** | URL completions inside string literals, filtered by HTTP method |
+| **Hover docs** | Hover over a URL to see available methods and descriptions |
+| **JSDoc** | Property descriptions from the spec appear in hover tooltips |
+| **Example inference** | Types inferred from response `example` when `schema` is missing |
 
 ---
 
