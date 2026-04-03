@@ -5,13 +5,13 @@ import {
   fetchSpecForDomain,
   specCache,
   KNOWN_SPECS,
-} from "../dist/core/spec-cache.js";
-import { generatePerDomain } from "../dist/generate-types.js";
-import { getBasePath } from "../dist/core/url-parser.js";
+} from "../src/core/spec-cache";
+import { generatePerDomain } from "../src/generate-types";
+import { getBasePath } from "../src/core/url-parser";
 
 // ── Helper: start a local HTTP server ──────────────────────────────
 
-function startServer(routes) {
+function startServer(routes: Record<string, { status?: number; contentType?: string; body: string }>) {
   return new Promise((resolve) => {
     const server = createServer((req, res) => {
       const handler = routes[req.url];

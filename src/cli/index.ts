@@ -20,6 +20,18 @@ interface FileDiagnostic {
 
 async function main() {
   const args = process.argv.slice(2);
+
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`Usage: ty-fetch [tsconfig.json] [--verbose]
+
+Validate API calls against OpenAPI specs.
+
+Options:
+  --verbose    Show spec fetching details
+  --help, -h   Show this help message`);
+    process.exit(0);
+  }
+
   const tsconfigPath = args[0] ?? "tsconfig.json";
 
   const configFile = ts.readConfigFile(path.resolve(tsconfigPath), ts.sys.readFile);

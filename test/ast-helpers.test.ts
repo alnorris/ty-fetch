@@ -1,9 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import ts from "typescript";
-import { findFetchCalls } from "../dist/core/index.js";
+import { findFetchCalls } from "../src/core/index";
 
-function parse(code) {
+function parse(code: string) {
   return ts.createSourceFile("test.ts", code, ts.ScriptTarget.Latest, true);
 }
 

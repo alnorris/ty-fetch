@@ -1,1 +1,8 @@
 __generated/
+test/
+src/
+tsconfig.build.json
+CLAUDE.md
+.claude/
+*.tgz
+.gitignore

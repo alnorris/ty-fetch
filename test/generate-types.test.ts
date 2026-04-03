@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { generateDtsContent, generatePerDomain } from "../dist/generate-types.js";
+import { generateDtsContent, generatePerDomain } from "../src/generate-types";
 
 const petSpec = {
   info: { title: "Petstore" },

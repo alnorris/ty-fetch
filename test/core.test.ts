@@ -12,7 +12,7 @@ import {
   matchesPathTemplate,
   resolveSchemaRef,
   validateJsonBody,
-} from "../dist/core/index.js";
+} from "../src/core/index";
 
 // ── URL parsing ─────────────────────────────────────────────────
 

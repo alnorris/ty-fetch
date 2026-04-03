@@ -201,6 +201,10 @@ async function fetchSpec(urlOrPath: string): Promise<OpenAPISpec> {
         fetchSpec(res.headers.location).then(resolve, reject);
         return;
       }
+      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
       let data = "";
       res.on("data", (chunk: string) => (data += chunk));
       res.on("end", () => {
@@ -208,6 +212,6 @@ async function fetchSpec(urlOrPath: string): Promise<OpenAPISpec> {
         catch (err) { reject(new Error(`Failed to parse spec: ${err}`)); }
       });
       res.on("error", reject);
-    });
+    }).on("error", reject);
   });
 }
