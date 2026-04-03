@@ -41,15 +41,18 @@ ty-fetch is a **TypeScript language service plugin**. When you write a `tf.get("
 
 Types appear in your editor instantly. When the spec changes, types update automatically. No build step ever.
 
-### Compared to codegen tools
+### Compared to other tools
 
-| | Traditional codegen | ty-fetch |
-|---|---|---|
-| **Setup** | Install generator, run codegen, import client | `npm install` + one tsconfig line |
-| **Spec changes** | Re-run generator, fix imports | Types update automatically |
-| **What you write** | `client.users.list()` | `tf.get("https://api.mycompany.com/v1/users")` |
-| **Generated files** | Committed to repo or `.gitignore`'d | None |
-| **Build step** | Required | None |
+| | ty-fetch | [openapi-typescript](https://github.com/openapi-ts/openapi-typescript) | [openapi-fetch](https://github.com/openapi-ts/openapi-typescript/tree/main/packages/openapi-fetch) | [orval](https://github.com/orval-labs/orval) |
+|---|---|---|---|---|
+| **Codegen step** | None | `npx openapi-typescript ...` | Needs openapi-typescript first | `npx orval` |
+| **Build step** | None | Required | Required | Required |
+| **Generated files** | None | `.d.ts` files | `.d.ts` files | Full client |
+| **Spec changes** | Auto-updates | Re-run codegen | Re-run codegen | Re-run codegen |
+| **Editor integration** | TS plugin (autocomplete, hover, diagnostics) | Types only | Types only | Types only |
+| **Path validation** | Typo detection with suggestions | None | None | None |
+| **Auto-discovery** | Probes well-known paths | Manual | Manual | Manual |
+| **Runtime** | Lightweight fetch wrapper | None (types only) | Fetch wrapper | Axios/fetch client |
 
 ---
 
@@ -219,6 +222,14 @@ npm run build          # compile TypeScript
 npm run watch          # compile in watch mode
 npm test               # run unit tests (74 tests)
 ```
+
+## Roadmap
+
+- [ ] Record demo GIF showing autocomplete + typo detection in VS Code
+- [ ] Spec caching to disk (avoid re-fetching on TS server restart)
+- [ ] `ty-fetch generate` CLI command to generate `.d.ts` for `tsc` compatibility
+- [ ] Support OpenAPI 2.0 (Swagger) specs
+- [ ] Request/response interceptors and middleware
 
 ## License
 
