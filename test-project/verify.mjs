@@ -1,5 +1,5 @@
 /**
- * Verifies the typed-fetch plugin works by programmatically running
+ * Verifies the ty-fetch plugin works by programmatically running
  * the TS language service with the plugin loaded.
  *
  * Usage: node verify.mjs
@@ -15,7 +15,7 @@ import { resolve } from "path";
 const require = createRequire(import.meta.url);
 
 // Load the plugin init function
-const pluginInit = require("typed-fetch-plugin-poc");
+const pluginInit = require("ty-fetch-plugin-poc");
 const pluginModule = pluginInit({ typescript: ts });
 
 // Set up a minimal language service host
@@ -74,12 +74,12 @@ const pluginProxy = pluginModule.create({
 
 function showDiagnostics() {
   const diags = pluginProxy.getSemanticDiagnostics(fileName);
-  const custom = diags.filter((d) => d.source === "typed-fetch");
+  const custom = diags.filter((d) => d.source === "ty-fetch");
 
   if (custom.length === 0) {
-    console.log("  No typed-fetch diagnostics (specs may still be loading...)");
+    console.log("  No ty-fetch diagnostics (specs may still be loading...)");
   } else {
-    console.log(`  Found ${custom.length} typed-fetch diagnostic(s):\n`);
+    console.log(`  Found ${custom.length} ty-fetch diagnostic(s):\n`);
     for (const d of custom) {
       const pos = d.file
         ? d.file.getLineAndCharacterOfPosition(d.start ?? 0)
@@ -91,7 +91,7 @@ function showDiagnostics() {
   console.log();
 }
 
-console.log("=== typed-fetch POC verification ===\n");
+console.log("=== ty-fetch POC verification ===\n");
 console.log("1. Initial diagnostics (specs not yet loaded):");
 showDiagnostics();
 

@@ -1,4 +1,4 @@
-# typed-fetch: Automatic REST API Validation for TypeScript
+# ty-fetch: Automatic REST API Validation for TypeScript
 
 Validate `fetch()` calls against OpenAPI specs — autocomplete, diagnostics, and hover info with zero manual setup. Works with plain `fetch()`, no wrapper functions or codegen.
 
@@ -12,21 +12,21 @@ Two packages from a single project, sharing a core validation engine:
 
 | Package | What it does |
 |---|---|
-| `eslint-plugin-typed-fetch` | Diagnostics — red squiggles in editor + errors in CI via `eslint` |
-| `typed-fetch-language-server` | DX — autocomplete for URL paths + hover info showing response shapes |
+| `eslint-plugin-ty-fetch` | Diagnostics — red squiggles in editor + errors in CI via `eslint` |
+| `ty-fetch-language-server` | DX — autocomplete for URL paths + hover info showing response shapes |
 
 ### User Setup
 
 ```bash
-npm install -D eslint-plugin-typed-fetch typed-fetch-language-server
+npm install -D eslint-plugin-ty-fetch ty-fetch-language-server
 ```
 
 ```js
 // eslint.config.js
-import typedFetch from 'eslint-plugin-typed-fetch'
+import tyFetch from 'eslint-plugin-ty-fetch'
 
 export default [
-  typedFetch.configs.recommended,
+  tyFetch.configs.recommended,
   // ... your other config
 ]
 ```
@@ -35,7 +35,7 @@ export default [
 // tsconfig.json
 {
   "compilerOptions": {
-    "plugins": [{ "name": "typed-fetch-language-server" }]
+    "plugins": [{ "name": "ty-fetch-language-server" }]
   }
 }
 ```
@@ -56,15 +56,15 @@ That's it. No wrapper functions, no codegen, no patched compiler. Plain `fetch()
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                  @typed-fetch/core                │
+│                  @ty-fetch/core                │
 │                                                  │
 │  URL parsing · domain extraction · spec lookup   │
 │  path validation · fuzzy matching · caching      │
 └─────────────┬────────────────────┬───────────────┘
               │                    │
     ┌─────────▼─────────┐  ┌──────▼──────────────┐
-    │  eslint-plugin-    │  │  typed-fetch-        │
-    │  typed-fetch       │  │  language-server     │
+    │  eslint-plugin-    │  │  ty-fetch-        │
+    │  ty-fetch       │  │  language-server     │
     │                    │  │                      │
     │  • ESLint rule     │  │  • TS LS plugin      │
     │  • Uses TS type    │  │  • getCompletions    │
@@ -83,7 +83,7 @@ That's it. No wrapper functions, no codegen, no patched compiler. Plain `fetch()
     │  a domain is first seen in code, not from  │
     │  a bulk registry download.                 │
     │                                            │
-    │  1. Check disk cache (~/.typed-fetch/)      │
+    │  1. Check disk cache (~/.ty-fetch/)      │
     │  2. Query APIs.guru for that domain        │
     │  3. Probe well-known URLs as fallback      │
     │  4. Cache to disk for future runs          │
@@ -100,7 +100,7 @@ So the split is necessary:
 - **ESLint plugin** = validation (the important part — catches bugs)
 - **TS LS plugin** = completions and hover (the nice-to-have — speeds up development)
 
-Both share `@typed-fetch/core` so the spec resolution, caching, and validation logic is written once.
+Both share `@ty-fetch/core` so the spec resolution, caching, and validation logic is written once.
 
 ## How It Works
 
@@ -121,7 +121,7 @@ From `fetch('https://api.stripe.com/v1/customers')`, the core extracts domain `a
 
 The resolution chain:
 
-1. **Disk cache** — check `~/.typed-fetch/specs/api.stripe.com.json`
+1. **Disk cache** — check `~/.ty-fetch/specs/api.stripe.com.json`
 2. **APIs.guru** — query `https://api.apis.guru/v2/{service}.json` for that domain
 3. **Well-known URLs** — probe the domain directly:
    - `https://{domain}/openapi.json`
@@ -140,7 +140,7 @@ The TS language service plugin API is synchronous. The plugin handles this with 
 - Return no extra diagnostics/completions until the spec loads
 - On the next editor event (keystroke, save), the spec is available
 
-The ESLint plugin can be synchronous — it reads from the disk cache, and a `typed-fetch sync` CLI command pre-populates the cache during install or CI setup.
+The ESLint plugin can be synchronous — it reads from the disk cache, and a `ty-fetch sync` CLI command pre-populates the cache during install or CI setup.
 
 ### 3. Path Validation (ESLint Plugin)
 
@@ -152,7 +152,7 @@ Given `fetch('https://api.stripe.com/v1/cutsomers')`:
 
 ```
 error  Path '/v1/cutsomers' does not exist in the Stripe API.
-       Did you mean '/v1/customers'?  typed-fetch/valid-endpoint
+       Did you mean '/v1/customers'?  ty-fetch/valid-endpoint
 ```
 
 Additional validations:
@@ -216,7 +216,7 @@ For internal APIs not in any public registry, configure spec paths directly:
 
 ```jsonc
 // eslint.config.js
-typedFetch.configs.recommended({
+tyFetch.configs.recommended({
   specs: {
     'api.internal.company.com': './specs/internal-api.yaml',
     'localhost:3000': './specs/dev-api.json',
@@ -229,7 +229,7 @@ The same `specs` mapping is available in the TS plugin config in `tsconfig.json`
 ### Caching
 
 ```
-~/.typed-fetch/
+~/.ty-fetch/
   specs/
     api.stripe.com.json       # parsed OpenAPI doc (fetched on first use)
     api.github.com.json       # only specs you actually use
@@ -239,16 +239,16 @@ The same `specs` mapping is available in the TS plugin config in `tsconfig.json`
 - Specs are cached to disk on first fetch, refreshed when the plugin detects a version change
 - In-memory cache is populated from disk on first access per session
 - "Not found" entries have a 24h TTL before retrying
-- `typed-fetch sync` CLI command pre-populates cache (useful for CI)
+- `ty-fetch sync` CLI command pre-populates cache (useful for CI)
 
 ## Configuration
 
 ```jsonc
 // eslint.config.js — validation config
-import typedFetch from 'eslint-plugin-typed-fetch'
+import tyFetch from 'eslint-plugin-ty-fetch'
 
 export default [
-  typedFetch.configs.recommended({
+  tyFetch.configs.recommended({
     // Custom spec mappings for private APIs
     specs: {
       'api.internal.com': './specs/internal.yaml',
@@ -268,7 +268,7 @@ export default [
 {
   "compilerOptions": {
     "plugins": [{
-      "name": "typed-fetch-language-server",
+      "name": "ty-fetch-language-server",
       "specs": {
         "api.internal.com": "./specs/internal.yaml"
       },
@@ -304,7 +304,7 @@ When the plugin can't resolve a spec or parse a URL:
 
 ## Comparison to Existing Tools
 
-| Feature | typed-fetch | openapi-fetch | gql.tada | discofetch |
+| Feature | ty-fetch | openapi-fetch | gql.tada | discofetch |
 |---|---|---|---|---|
 | Zero-config for public APIs | Yes | No | No | No |
 | Auto-discovers specs | Yes (on-demand) | No | No | Probes live API |
@@ -319,14 +319,14 @@ When the plugin can't resolve a spec or parse a URL:
 
 ### Phase 1: Core + ESLint Plugin
 
-- `@typed-fetch/core` — URL parsing, domain extraction, spec resolution, disk caching, path validation, fuzzy "did you mean?" suggestions
-- `eslint-plugin-typed-fetch` — `typed-fetch/valid-endpoint` rule using `@typescript-eslint/parser` for AST access
-- `typed-fetch sync` CLI — pre-populate spec cache for CI environments
+- `@ty-fetch/core` — URL parsing, domain extraction, spec resolution, disk caching, path validation, fuzzy "did you mean?" suggestions
+- `eslint-plugin-ty-fetch` — `ty-fetch/valid-endpoint` rule using `@typescript-eslint/parser` for AST access
+- `ty-fetch sync` CLI — pre-populate spec cache for CI environments
 - Test against Stripe, GitHub, and Twilio APIs
 
 ### Phase 2: TS Language Server Plugin
 
-- `typed-fetch-language-server` — tsserver plugin wrapping `getCompletionsAtPosition` and `getQuickInfoAtPosition`
+- `ty-fetch-language-server` — tsserver plugin wrapping `getCompletionsAtPosition` and `getQuickInfoAtPosition`
 - Async spec loading with mutable ref pattern (following graphqlsp architecture)
 - Path autocomplete inside URL string literals
 - Hover info showing endpoint description and response schema
@@ -336,5 +336,5 @@ When the plugin can't resolve a spec or parse a URL:
 - Community-contributed spec mappings for APIs not in APIs.guru
 - Editor-specific extensions for status indicators (VS Code, Zed)
 - Monorepo support (per-package spec configs)
-- `typed-fetch update` CLI to refresh cached specs
+- `ty-fetch update` CLI to refresh cached specs
 

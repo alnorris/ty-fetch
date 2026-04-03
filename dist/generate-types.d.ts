@@ -1,6 +1,6 @@
 /**
  * Converts OpenAPI response schemas to TypeScript type declarations.
- * Generates a .d.ts file with typed overloads for typedFetch().
+ * Generates a .d.ts file with typed overloads for tyFetch().
  */
 interface OpenAPISchema {
     type?: string;
@@ -29,6 +29,13 @@ interface OpenAPIOperation {
         }>;
         required?: boolean;
     };
+    parameters?: Array<{
+        name?: string;
+        in?: string;
+        required?: boolean;
+        schema?: OpenAPISchema;
+        $ref?: string;
+    }>;
     summary?: string;
 }
 interface FullOpenAPISpec {

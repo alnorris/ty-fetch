@@ -6,7 +6,7 @@
     "strict": true,
     "lib": ["ES2022", "DOM"],
     "plugins": [
-      { "name": "typed-fetch-plugin-poc" }
+      { "name": "ty-fetch" }
     ]
   },
   "include": ["*.ts"]

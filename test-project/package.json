@@ -1,8 +1,8 @@
 {
-  "name": "typed-fetch-test-project",
+  "name": "ty-fetch-test-project",
   "private": true,
   "dependencies": {
-    "typed-fetch-plugin-poc": "file:..",
+    "ty-fetch": "file:..",
     "typescript": "^5.5.0"
   }
 }

@@ -1,4 +1,4 @@
-# typed-fetch-plugin
+# ty-fetch-plugin
 
 ## What this is
 
@@ -19,14 +19,14 @@ test-project/         — Test project with example.ts using the plugin
 3. Extracts domain, kicks off async HTTPS fetch of OpenAPI spec (first encounter only)
 4. Spec arrives → stored in `specCache` Map → `refreshDiagnostics()` triggers editor re-evaluation
 5. Path validation + fuzzy "did you mean?" suggestions via Levenshtein distance
-6. **Type generation**: scans ALL project files for used URLs, generates typed overloads into `node_modules/typed-fetch/index.d.ts` via interface merging
+6. **Type generation**: scans ALL project files for used URLs, generates typed overloads into `node_modules/ty-fetch/index.d.ts` via interface merging
 
-### The `typed-fetch` client
+### The `ty-fetch` client
 
-A ky-like API client (`api.get()`, `api.post()`, etc.) that returns parsed JSON directly. Types come from generated `TypedFetchClient` interface overloads — the user never specifies types manually.
+A ky-like API client (`api.get()`, `api.post()`, etc.) that returns parsed JSON directly. Types come from generated `TyFetchClient` interface overloads — the user never specifies types manually.
 
 ```ts
-import { api } from "typed-fetch";
+import { api } from "ty-fetch";
 const data = await api.get("https://api.stripe.com/v1/customers");
 // data is fully typed as Stripe_V1_Customers_Get
 ```
@@ -40,10 +40,10 @@ const data = await api.get("https://api.stripe.com/v1/customers");
 - **Solution**: custom client (`api.get()`) with interface merging. We control the return type completely.
 
 ### Module/type loading
-- `@types/typed-fetch` is IGNORED by TS when `node_modules/typed-fetch` has its own `index.d.ts`. Don't use `@types` for augmentation of packages that already ship types.
+- `@types/ty-fetch` is IGNORED by TS when `node_modules/ty-fetch` has its own `index.d.ts`. Don't use `@types` for augmentation of packages that already ship types.
 - `/// <reference path>` from inside `node_modules` is unreliable — TS caches resolutions and doesn't re-read on change.
-- `declare module 'typed-fetch'` augmentation CANNOT appear in the same file that IS the module. Use `export interface` merging directly in `index.d.ts` instead.
-- **What works**: plugin writes generated overloads + base exports into a single `node_modules/typed-fetch/index.d.ts`. Interface declaration merging handles the rest.
+- `declare module 'ty-fetch'` augmentation CANNOT appear in the same file that IS the module. Use `export interface` merging directly in `index.d.ts` instead.
+- **What works**: plugin writes generated overloads + base exports into a single `node_modules/ty-fetch/index.d.ts`. Interface declaration merging handles the rest.
 
 ### Type generation
 - `interface Foo { ... } | { ... }` is invalid — use `type Foo = ... | ...` for unions.

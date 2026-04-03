@@ -245,7 +245,7 @@ function init(modules) {
                     }
                     const arg = node.arguments[0];
                     if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
-                        results.push({ node: arg, url: arg.text, httpMethod });
+                        results.push({ node: arg, url: arg.text, httpMethod, callExpr: node });
                     }
                 }
                 ts.forEachChild(node, visit);
@@ -314,6 +314,59 @@ function init(modules) {
                 return true;
             return Object.keys(spec.paths).some((tp) => matchesPathTemplate(path, tp));
         }
+        // ── Schema helpers for body validation ────────────────────────
+        function findSpecPath(apiPath, spec) {
+            if (spec.paths[apiPath])
+                return apiPath;
+            return Object.keys(spec.paths).find((tp) => matchesPathTemplate(apiPath, tp)) ?? null;
+        }
+        function resolveSchemaRef(schema, spec) {
+            if (!schema)
+                return null;
+            if (schema.$ref) {
+                const match = schema.$ref.match(/^#\/components\/schemas\/(.+)$/);
+                if (match)
+                    return spec.components?.schemas?.[match[1]] ?? null;
+                return null;
+            }
+            return schema;
+        }
+        function checkTypeMismatch(valueNode, schema) {
+            const expectedType = schema.type;
+            const enumValues = schema.enum;
+            if (ts.isNumericLiteral(valueNode)) {
+                if (expectedType === "string") {
+                    return `Type 'number' is not assignable to type 'string'.`;
+                }
+            }
+            else if (ts.isStringLiteral(valueNode)) {
+                if (expectedType === "number" || expectedType === "integer") {
+                    return `Type 'string' is not assignable to type 'number'.`;
+                }
+                if (enumValues && !enumValues.includes(valueNode.text)) {
+                    return `Value '${valueNode.text}' is not assignable to type '${enumValues.map((v) => `"${v}"`).join(" | ")}'.`;
+                }
+            }
+            else if (valueNode.kind === ts.SyntaxKind.TrueKeyword || valueNode.kind === ts.SyntaxKind.FalseKeyword) {
+                if (expectedType === "string") {
+                    return `Type 'boolean' is not assignable to type 'string'.`;
+                }
+                if (expectedType === "number" || expectedType === "integer") {
+                    return `Type 'boolean' is not assignable to type 'number'.`;
+                }
+            }
+            else if (ts.isArrayLiteralExpression(valueNode)) {
+                if (expectedType !== "array") {
+                    return `Type 'array' is not assignable to type '${expectedType}'.`;
+                }
+            }
+            else if (ts.isObjectLiteralExpression(valueNode)) {
+                if (expectedType !== "object" && !schema.properties) {
+                    return `Type 'object' is not assignable to type '${expectedType}'.`;
+                }
+            }
+            return null;
+        }
         // ── getSemanticDiagnostics — the core hook ──────────────────────
         proxy.getSemanticDiagnostics = (fileName) => {
             const prior = info.languageService.getSemanticDiagnostics(fileName);
@@ -325,7 +378,7 @@ function init(modules) {
                 return prior;
             const fetchCalls = findFetchCalls(sourceFile);
             const extra = [];
-            for (const { node, url } of fetchCalls) {
+            for (const { node, url, httpMethod, callExpr } of fetchCalls) {
                 const parsed = parseFetchUrl(url);
                 if (!parsed)
                     continue;
@@ -344,13 +397,104 @@ function init(modules) {
                     }
                     extra.push({
                         file: sourceFile,
-                        start: node.getStart() + 1, // skip opening quote
-                        length: node.getText().length - 2, // exclude quotes
+                        start: node.getStart() + 1,
+                        length: node.getText().length - 2,
                         messageText: msgParts.join(" "),
                         category: ts.DiagnosticCategory.Error,
                         code: 99001,
                         source: "typed-fetch",
                     });
+                }
+                // ── Validate JSON body properties ──────────────────────────
+                if (httpMethod && callExpr.arguments.length >= 2) {
+                    const specPath = findSpecPath(apiPath, entry.spec);
+                    if (!specPath)
+                        continue;
+                    const operation = entry.spec.paths[specPath]?.[httpMethod];
+                    if (!operation?.requestBody)
+                        continue;
+                    const reqSchema = operation.requestBody?.content?.["application/json"]?.schema ??
+                        operation.requestBody?.content?.["application/x-www-form-urlencoded"]?.schema;
+                    if (!reqSchema)
+                        continue;
+                    // Resolve the schema (handle $ref)
+                    const resolvedSchema = resolveSchemaRef(reqSchema, entry.spec);
+                    if (!resolvedSchema?.properties)
+                        continue;
+                    // Find the `json` property in the options argument
+                    const optionsArg = callExpr.arguments[1];
+                    if (!ts.isObjectLiteralExpression(optionsArg))
+                        continue;
+                    const jsonProp = optionsArg.properties.find((p) => ts.isPropertyAssignment(p) &&
+                        ts.isIdentifier(p.name) &&
+                        p.name.text === "json");
+                    if (!jsonProp || !ts.isObjectLiteralExpression(jsonProp.initializer))
+                        continue;
+                    const jsonObj = jsonProp.initializer;
+                    const schemaProps = resolvedSchema.properties;
+                    const requiredSet = new Set(resolvedSchema.required ?? []);
+                    // Check each property in the json object
+                    for (const prop of jsonObj.properties) {
+                        if (!ts.isPropertyAssignment(prop))
+                            continue;
+                        const propName = ts.isIdentifier(prop.name)
+                            ? prop.name.text
+                            : ts.isStringLiteral(prop.name)
+                                ? prop.name.text
+                                : null;
+                        if (!propName)
+                            continue;
+                        // Unknown property
+                        if (!schemaProps[propName]) {
+                            extra.push({
+                                file: sourceFile,
+                                start: prop.name.getStart(),
+                                length: prop.name.getText().length,
+                                messageText: `Property '${propName}' does not exist in the request body schema.`,
+                                category: ts.DiagnosticCategory.Error,
+                                code: 99002,
+                                source: "typed-fetch",
+                            });
+                            continue;
+                        }
+                        // Type mismatch check
+                        const expectedSchema = resolveSchemaRef(schemaProps[propName], entry.spec);
+                        if (!expectedSchema?.type)
+                            continue;
+                        const valueNode = prop.initializer;
+                        const mismatch = checkTypeMismatch(valueNode, expectedSchema);
+                        if (mismatch) {
+                            extra.push({
+                                file: sourceFile,
+                                start: valueNode.getStart(),
+                                length: valueNode.getText().length,
+                                messageText: mismatch,
+                                category: ts.DiagnosticCategory.Error,
+                                code: 99003,
+                                source: "typed-fetch",
+                            });
+                        }
+                    }
+                    // Check for missing required properties
+                    for (const reqProp of requiredSet) {
+                        const found = jsonObj.properties.some((p) => {
+                            if (!ts.isPropertyAssignment(p))
+                                return false;
+                            const name = ts.isIdentifier(p.name) ? p.name.text : ts.isStringLiteral(p.name) ? p.name.text : null;
+                            return name === reqProp;
+                        });
+                        if (!found) {
+                            extra.push({
+                                file: sourceFile,
+                                start: jsonObj.getStart(),
+                                length: 1, // just the opening brace
+                                messageText: `Missing required property '${reqProp}' in request body.`,
+                                category: ts.DiagnosticCategory.Error,
+                                code: 99004,
+                                source: "typed-fetch",
+                            });
+                        }
+                    }
                 }
             }
             // Check if URLs changed — regenerate types if needed

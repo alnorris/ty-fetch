@@ -1,9 +1,13 @@
 {
-  "name": "typed-fetch-plugin-poc",
+  "name": "ty-fetch",
   "version": "0.0.1",
   "private": true,
-  "main": "dist/index.js",
+  "main": "dist/plugin/index.js",
+  "bin": {
+    "ty-fetch": "dist/cli/index.js"
+  },
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "build": "tsc -p tsconfig.build.json",
     "watch": "tsc -p tsconfig.build.json --watch"
   },
