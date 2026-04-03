@@ -5,6 +5,7 @@ import {
   findFetchCalls,
   findSpecPath,
   getBasePath,
+  getOperationParams,
   parseFetchUrl,
   pathExistsInSpec,
   registerSpecs,
@@ -144,37 +145,43 @@ function init(modules: { typescript: typeof import("typescript") }) {
           });
         }
 
-        // Body validation
-        if (call.httpMethod && call.jsonBody) {
-          const specPath = findSpecPath(apiPath, entry.spec);
-          if (specPath) {
-            const operation = entry.spec.paths[specPath]?.[call.httpMethod];
-            const reqSchema =
-              operation?.requestBody?.content?.["application/json"]?.schema ??
-              operation?.requestBody?.content?.["application/x-www-form-urlencoded"]?.schema;
-            if (reqSchema) {
-              const resolved = resolveSchemaRef(reqSchema, entry.spec);
-              if (resolved?.properties) {
-                // Find jsonObj start from the call expression in the AST
-                const callNode =
-                  sourceFile.statements.length > 0 ? findCallAtPosition(ts, sourceFile, call.callStart) : null;
-                const jsonObjStart = callNode ? getJsonObjStart(ts, callNode) : call.callStart;
+        const specPath = findSpecPath(apiPath, entry.spec);
 
-                const bodyDiags = validateJsonBody(call.jsonBody, resolved, entry.spec, jsonObjStart);
-                for (const d of bodyDiags) {
-                  extra.push({
-                    file: sourceFile,
-                    start: d.start,
-                    length: d.length,
-                    messageText: d.message,
-                    category: ts.DiagnosticCategory.Error,
-                    code: d.code,
-                    source: "ty-fetch",
-                  });
-                }
+        // Body validation
+        if (call.httpMethod && call.jsonBody && specPath) {
+          const operation = entry.spec.paths[specPath]?.[call.httpMethod];
+          const reqSchema =
+            operation?.requestBody?.content?.["application/json"]?.schema ??
+            operation?.requestBody?.content?.["application/x-www-form-urlencoded"]?.schema;
+          if (reqSchema) {
+            const resolved = resolveSchemaRef(reqSchema, entry.spec);
+            if (resolved?.properties) {
+              const callNode =
+                sourceFile.statements.length > 0 ? findCallAtPosition(ts, sourceFile, call.callStart) : null;
+              const jsonObjStart = callNode ? getJsonObjStart(ts, callNode) : call.callStart;
+
+              const bodyDiags = validateJsonBody(call.jsonBody, resolved, entry.spec, jsonObjStart);
+              for (const d of bodyDiags) {
+                extra.push({
+                  file: sourceFile,
+                  start: d.start,
+                  length: d.length,
+                  messageText: d.message,
+                  category: ts.DiagnosticCategory.Error,
+                  code: d.code,
+                  source: "ty-fetch",
+                });
               }
             }
           }
+        }
+
+        // Params validation (query + path)
+        if (call.httpMethod && specPath) {
+          const operation = entry.spec.paths[specPath]?.[call.httpMethod];
+          const pathItem = entry.spec.paths[specPath];
+          validateParams(call.queryParams, "query", operation, pathItem, entry.spec, sourceFile, extra);
+          validateParams(call.pathParams, "path", operation, pathItem, entry.spec, sourceFile, extra);
         }
       }
 
@@ -206,38 +213,75 @@ function init(modules: { typescript: typeof import("typescript") }) {
 
       const calls = findFetchCalls(ts, sourceFile);
       for (const call of calls) {
-        if (position < call.urlStart || position > call.urlStart + call.urlLength) continue;
-        const parsed = parseFetchUrl(call.url);
-        if (!parsed) continue;
+        // URL completions
+        if (position >= call.urlStart && position <= call.urlStart + call.urlLength) {
+          const parsed = parseFetchUrl(call.url);
+          if (!parsed) continue;
 
-        const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
-        if (entry.status !== "loaded" || !entry.spec) continue;
+          const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
+          if (entry.status !== "loaded" || !entry.spec) continue;
 
-        const basePath = getBasePath(entry.spec);
-        const urlPrefix = `https://${parsed.domain}${basePath}`;
+          const basePath = getBasePath(entry.spec);
+          const urlPrefix = `https://${parsed.domain}${basePath}`;
 
-        const pathEntries: ts.CompletionEntry[] = [];
-        for (const [specPath, methods] of Object.entries(entry.spec.paths)) {
-          const available = Object.keys(methods).filter((m) => !["parameters", "summary", "description"].includes(m));
-          if (call.httpMethod && !available.includes(call.httpMethod)) continue;
-          const fullUrl = `${urlPrefix}${specPath}`;
-          pathEntries.push({
-            name: fullUrl,
-            kind: ts.ScriptElementKind.string,
-            sortText: `0${specPath}`,
-            replacementSpan: { start: call.urlStart, length: call.urlLength },
-            insertText: fullUrl,
-            labelDetails: { description: available.map((m) => m.toUpperCase()).join(", ") },
-          });
+          const pathEntries: ts.CompletionEntry[] = [];
+          for (const [specPath, methods] of Object.entries(entry.spec.paths)) {
+            const available = Object.keys(methods).filter((m) => !["parameters", "summary", "description"].includes(m));
+            if (call.httpMethod && !available.includes(call.httpMethod)) continue;
+            const fullUrl = `${urlPrefix}${specPath}`;
+            pathEntries.push({
+              name: fullUrl,
+              kind: ts.ScriptElementKind.string,
+              sortText: `0${specPath}`,
+              replacementSpan: { start: call.urlStart, length: call.urlLength },
+              insertText: fullUrl,
+              labelDetails: { description: available.map((m) => m.toUpperCase()).join(", ") },
+            });
+          }
+
+          const filtered = pathEntries.filter((e) => e.name.startsWith(call.url) || call.url.endsWith("/"));
+          return {
+            isGlobalCompletion: false,
+            isMemberCompletion: false,
+            isNewIdentifierLocation: false,
+            entries: filtered.length > 0 ? filtered : pathEntries,
+          };
         }
 
-        const filtered = pathEntries.filter((e) => e.name.startsWith(call.url) || call.url.endsWith("/"));
-        return {
-          isGlobalCompletion: false,
-          isMemberCompletion: false,
-          isNewIdentifierLocation: false,
-          entries: filtered.length > 0 ? filtered : pathEntries,
-        };
+        // Param completions (query / path)
+        const inQuery = call.queryObjRange && position > call.queryObjRange.start && position < call.queryObjRange.end;
+        const inPath = call.pathObjRange && position > call.pathObjRange.start && position < call.pathObjRange.end;
+        if ((inQuery || inPath) && call.httpMethod) {
+          const parsed = parseFetchUrl(call.url);
+          if (!parsed) continue;
+          const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
+          if (entry.status !== "loaded" || !entry.spec) continue;
+          const apiPath = stripBasePath(parsed.path, entry.spec);
+          const specPath = findSpecPath(apiPath, entry.spec);
+          if (!specPath) continue;
+          const operation = entry.spec.paths[specPath]?.[call.httpMethod];
+          const pathItem = entry.spec.paths[specPath];
+          const filterIn = inQuery ? "query" : "path";
+          const specParams = getOperationParams(operation, pathItem, entry.spec, filterIn as "query" | "path");
+          const existing = (inQuery ? call.queryParams : call.pathParams) ?? [];
+          const existingNames = new Set(existing.map((p) => p.name));
+          const entries: ts.CompletionEntry[] = specParams
+            .filter((p) => !existingNames.has(p.name))
+            .map((p) => ({
+              name: p.name,
+              kind: ts.ScriptElementKind.memberVariableElement,
+              sortText: p.required ? `0${p.name}` : `1${p.name}`,
+              labelDetails: { description: p.required ? "(required)" : "(optional)" },
+            }));
+          if (entries.length > 0) {
+            return {
+              isGlobalCompletion: false,
+              isMemberCompletion: true,
+              isNewIdentifierLocation: false,
+              entries: [...entries, ...(prior?.entries ?? [])],
+            };
+          }
+        }
       }
       return prior;
     };
@@ -296,6 +340,38 @@ function init(modules: { typescript: typeof import("typescript") }) {
   }
 
   return { create };
+}
+
+import type { ParamProperty, OpenAPISpec } from "../core/types";
+
+function validateParams(
+  params: ParamProperty[] | null,
+  filterIn: "query" | "path",
+  operation: any,
+  pathItem: any,
+  spec: OpenAPISpec,
+  sourceFile: import("typescript").SourceFile,
+  extra: import("typescript").Diagnostic[],
+) {
+  if (!params || params.length === 0) return;
+  const ts = require("typescript") as typeof import("typescript");
+  const specParams = getOperationParams(operation, pathItem, spec, filterIn);
+  const validNames = new Set(specParams.map((p) => p.name));
+
+  for (const param of params) {
+    if (!validNames.has(param.name)) {
+      const suggestions = specParams.map((p) => `'${p.name}'`).join(", ");
+      extra.push({
+        file: sourceFile,
+        start: param.nameStart,
+        length: param.nameLength,
+        messageText: `Unknown ${filterIn} parameter '${param.name}'.${suggestions ? ` Available: ${suggestions}` : ""}`,
+        category: ts.DiagnosticCategory.Error,
+        code: 99005,
+        source: "ty-fetch",
+      });
+    }
+  }
 }
 
 // Helper to find a CallExpression at a position in the AST

@@ -420,3 +420,107 @@ describe("Swagger 2.0 support", () => {
     assert.ok(content.includes("userId: string"), "should have userId param");
   });
 });
+
+// ── Query param enum types ──────────────────────────────────────
+
+describe("query param type inference", () => {
+  it("generates enum union for query param with enum", () => {
+    const spec = makeSpec({
+      "/search": {
+        get: {
+          parameters: [{ name: "sort", in: "query", schema: { type: "string", enum: ["asc", "desc"] } }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /sort\??: "asc" \| "desc"/);
+    assert.doesNotMatch(result, /sort\??: string/);
+  });
+
+  it("generates number type for integer query param", () => {
+    const spec = makeSpec({
+      "/items": {
+        get: {
+          parameters: [{ name: "limit", in: "query", schema: { type: "integer" } }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /limit\??: number/);
+  });
+
+  it("generates boolean type for boolean query param", () => {
+    const spec = makeSpec({
+      "/items": {
+        get: {
+          parameters: [{ name: "active", in: "query", schema: { type: "boolean" } }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /active\??: boolean/);
+  });
+
+  it("generates array type for array query param with enum items", () => {
+    const spec = makeSpec({
+      "/filter": {
+        get: {
+          parameters: [{
+            name: "tags",
+            in: "query",
+            schema: { type: "array", items: { type: "string", enum: ["a", "b", "c"] } },
+          }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /tags\??: \("a" \| "b" \| "c"\)\[\]/);
+  });
+
+  it("generates numeric enum values", () => {
+    const spec = makeSpec({
+      "/levels": {
+        get: {
+          parameters: [{ name: "level", in: "query", schema: { type: "integer", enum: [1, 2, 3] } }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /level\??: 1 \| 2 \| 3/);
+  });
+
+  it("defaults to string for query param with no schema", () => {
+    const spec = makeSpec({
+      "/bare": {
+        get: {
+          parameters: [{ name: "q", in: "query" }],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /q\??: string/);
+  });
+
+  it("marks required query params without ?", () => {
+    const spec = makeSpec({
+      "/search": {
+        get: {
+          parameters: [
+            { name: "q", in: "query", required: true, schema: { type: "string" } },
+            { name: "page", in: "query", schema: { type: "integer" } },
+          ],
+          responses: { "200": { content: { "application/json": { schema: { type: "object" } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.match(result, /q: string/);
+    assert.match(result, /page\?: number/);
+  });
+});

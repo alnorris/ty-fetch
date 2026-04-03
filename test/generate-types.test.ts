@@ -44,7 +44,7 @@ const petSpec = {
     },
     "/pet/findByStatus": {
       get: {
-        parameters: [{ name: "status", in: "query", schema: { type: "string" } }],
+        parameters: [{ name: "status", in: "query", schema: { type: "string", enum: ["available", "pending", "sold"] } }],
         responses: {
           "200": {
             content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Pet" } } } },
@@ -76,8 +76,8 @@ describe("generateDtsContent", () => {
     assert.match(result, /Petstore_Pet_PetId_Get_PathParams.*petId: string/);
   });
 
-  it("generates query params for /pet/findByStatus", () => {
-    assert.match(result, /Petstore_Pet_FindByStatus_Get_QueryParams.*status/);
+  it("generates query params with enum types for /pet/findByStatus", () => {
+    assert.match(result, /Petstore_Pet_FindByStatus_Get_QueryParams.*status.*"available" \| "pending" \| "sold"/);
   });
 
   it("emits overloads with Options<Body, PathParams, QueryParams, Headers>", () => {
@@ -103,8 +103,20 @@ describe("generateDtsContent", () => {
     assert.match(result, /photoUrls\??: string\[\]/);
   });
 
-  it("handles enum types", () => {
+  it("handles enum types in response schemas", () => {
     assert.match(result, /"available" \| "pending" \| "sold"/);
+  });
+
+  it("generates enum union types for query params", () => {
+    // status should be "available" | "pending" | "sold", not just string
+    assert.match(result, /QueryParams.*"available" \| "pending" \| "sold"/);
+  });
+
+  it("does not generate plain string for enum query params", () => {
+    // The QueryParams type should NOT have `status: string` — it should have the enum union
+    const qpMatch = result.match(/QueryParams = \{[^}]+\}/);
+    assert.ok(qpMatch, "QueryParams type should exist");
+    assert.doesNotMatch(qpMatch[0], /status\??: string;/);
   });
 });
 

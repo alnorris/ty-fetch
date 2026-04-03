@@ -1,13 +1,13 @@
 import ty from "ty-fetch";
 
-// ─── Petstore API (OpenAPI spec auto-discovered) ────────────────────
-// The plugin finds the spec at https://petstore3.swagger.io/api/v3/openapi.json
+// ─── Petstore API ──────────────────────────────────────────────────
+// Spec configured in tsconfig.json → plugins[].specs
 // All types below are generated automatically — no codegen step!
 
 async function findPets() {
   // Typed response — status is "available" | "pending" | "sold"
   const { data, error } = await ty.get("https://petstore3.swagger.io/api/v3/pet/findByStatus", {
-    params: { query: { status: "available" } },
+    params: { query: { status: 'available' } },
   });
 
   if (error) return console.error(error);

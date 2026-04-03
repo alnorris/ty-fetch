@@ -5,7 +5,12 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "plugins": [{ "name": "ty-fetch/plugin" }]
+    "plugins": [{
+      "name": "ty-fetch/plugin",
+      "specs": {
+        "petstore3.swagger.io": "https://petstore3.swagger.io/api/v3/openapi.json"
+      }
+    }]
   },
   "include": ["*.ts"]
 }

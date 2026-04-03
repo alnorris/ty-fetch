@@ -121,4 +121,75 @@ describe("findFetchCalls", () => {
     const calls = findFetchCalls(ts, sf);
     assert.equal(calls.length, 3);
   });
+
+  it("extracts query params", () => {
+    const sf = parse(`tf.get("https://x.com/api", { params: { query: { status: "available", limit: 10 } } });`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].queryParams);
+    assert.equal(calls[0].queryParams.length, 2);
+    assert.equal(calls[0].queryParams[0].name, "status");
+    assert.equal(calls[0].queryParams[1].name, "limit");
+  });
+
+  it("extracts path params", () => {
+    const sf = parse(`tf.get("https://x.com/api/{id}", { params: { path: { id: "123" } } });`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].pathParams);
+    assert.equal(calls[0].pathParams.length, 1);
+    assert.equal(calls[0].pathParams[0].name, "id");
+  });
+
+  it("extracts both query and path params", () => {
+    const sf = parse(`tf.get("https://x.com/api/{id}", { params: { path: { id: "1" }, query: { expand: "all" } } });`);
+    const calls = findFetchCalls(ts, sf);
+    assert.ok(calls[0].pathParams);
+    assert.ok(calls[0].queryParams);
+    assert.equal(calls[0].pathParams[0].name, "id");
+    assert.equal(calls[0].queryParams[0].name, "expand");
+  });
+
+  it("returns null params when no params option", () => {
+    const sf = parse(`tf.get("https://x.com/api");`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls[0].queryParams, null);
+    assert.equal(calls[0].pathParams, null);
+    assert.equal(calls[0].queryObjRange, null);
+    assert.equal(calls[0].pathObjRange, null);
+  });
+
+  it("returns null params when params is not object literal", () => {
+    const sf = parse(`tf.get("https://x.com/api", { params: someVar });`);
+    const calls = findFetchCalls(ts, sf);
+    assert.equal(calls[0].queryParams, null);
+    assert.equal(calls[0].pathParams, null);
+  });
+
+  it("sets queryObjRange for query object", () => {
+    const code = `tf.get("https://x.com/api", { params: { query: { status: "ok" } } });`;
+    const sf = parse(code);
+    const calls = findFetchCalls(ts, sf);
+    assert.ok(calls[0].queryObjRange);
+    const slice = code.substring(calls[0].queryObjRange.start, calls[0].queryObjRange.end);
+    assert.equal(slice, `{ status: "ok" }`);
+  });
+
+  it("sets pathObjRange for path object", () => {
+    const code = `tf.get("https://x.com/{id}", { params: { path: { id: "1" } } });`;
+    const sf = parse(code);
+    const calls = findFetchCalls(ts, sf);
+    assert.ok(calls[0].pathObjRange);
+    const slice = code.substring(calls[0].pathObjRange.start, calls[0].pathObjRange.end);
+    assert.equal(slice, `{ id: "1" }`);
+  });
+
+  it("correct nameStart positions for param properties", () => {
+    const code = `tf.get("https://x.com/api", { params: { query: { status: "ok" } } });`;
+    const sf = parse(code);
+    const calls = findFetchCalls(ts, sf);
+    const param = calls[0].queryParams![0];
+    const nameInCode = code.substring(param.nameStart, param.nameStart + param.nameLength);
+    assert.equal(nameInCode, "status");
+  });
 });

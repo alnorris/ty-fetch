@@ -31,6 +31,20 @@ export interface FetchCallInfo {
   callLength: number;
   /** JSON body properties if present: [{ name, nameStart, nameLength, valueStart, valueLength, valueText, valueKind }] */
   jsonBody: JsonBodyProperty[] | null;
+  /** params.query properties */
+  queryParams: ParamProperty[] | null;
+  /** params.path properties */
+  pathParams: ParamProperty[] | null;
+  /** Position range of the query object literal (for completions) */
+  queryObjRange: { start: number; end: number } | null;
+  /** Position range of the path object literal (for completions) */
+  pathObjRange: { start: number; end: number } | null;
+}
+
+export interface ParamProperty {
+  name: string;
+  nameStart: number;
+  nameLength: number;
 }
 
 export interface JsonBodyProperty {

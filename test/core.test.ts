@@ -6,6 +6,7 @@ import {
   findClosestPath,
   findSpecPath,
   getBasePath,
+  getOperationParams,
   matchesPathTemplate,
   parseFetchUrl,
   pathExistsInSpec,
@@ -331,5 +332,80 @@ describe("validateJsonBody", () => {
     const diags = validateJsonBody(props, schema, spec, 0);
     // missing "name" + type mismatch on "age" + unknown "fake"
     assert.equal(diags.length, 3);
+  });
+});
+
+// ── getOperationParams ──────────────────────────────────────────
+
+describe("getOperationParams", () => {
+  const spec = {
+    paths: {},
+    components: {},
+  };
+
+  it("extracts query params from operation", () => {
+    const operation = {
+      parameters: [
+        { name: "status", in: "query", required: true, schema: { type: "string" } },
+        { name: "limit", in: "query", schema: { type: "integer" } },
+        { name: "petId", in: "path", required: true, schema: { type: "integer" } },
+      ],
+    };
+    const result = getOperationParams(operation, {}, spec, "query");
+    assert.equal(result.length, 2);
+    assert.equal(result[0].name, "status");
+    assert.equal(result[0].required, true);
+    assert.equal(result[1].name, "limit");
+    assert.equal(result[1].required, false);
+  });
+
+  it("extracts path params from operation", () => {
+    const operation = {
+      parameters: [
+        { name: "petId", in: "path", required: true, schema: { type: "integer" } },
+        { name: "status", in: "query", schema: { type: "string" } },
+      ],
+    };
+    const result = getOperationParams(operation, {}, spec, "path");
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, "petId");
+    assert.equal(result[0].required, true);
+  });
+
+  it("merges path-level and operation-level params", () => {
+    const pathItem = {
+      parameters: [{ name: "orgId", in: "path", required: true }],
+    };
+    const operation = {
+      parameters: [{ name: "status", in: "query" }],
+    };
+    const queryResult = getOperationParams(operation, pathItem, spec, "query");
+    assert.equal(queryResult.length, 1);
+    assert.equal(queryResult[0].name, "status");
+    const pathResult = getOperationParams(operation, pathItem, spec, "path");
+    assert.equal(pathResult.length, 1);
+    assert.equal(pathResult[0].name, "orgId");
+  });
+
+  it("deduplicates params by name", () => {
+    const pathItem = {
+      parameters: [{ name: "status", in: "query" }],
+    };
+    const operation = {
+      parameters: [{ name: "status", in: "query", required: true }],
+    };
+    const result = getOperationParams(operation, pathItem, spec, "query");
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, "status");
+  });
+
+  it("returns empty array when no params", () => {
+    const result = getOperationParams({}, {}, spec, "query");
+    assert.equal(result.length, 0);
+  });
+
+  it("returns empty array for null operation", () => {
+    const result = getOperationParams(null, null, spec, "query");
+    assert.equal(result.length, 0);
   });
 });

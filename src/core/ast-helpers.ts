@@ -1,4 +1,4 @@
-import type { FetchCallInfo, JsonBodyProperty } from "./types";
+import type { FetchCallInfo, JsonBodyProperty, ParamProperty } from "./types";
 
 type TS = typeof import("typescript");
 type SourceFile = import("typescript").SourceFile;
@@ -43,6 +43,10 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
         const urlLength = nodeLen(arg) - 2; // exclude quotes
 
         let jsonBody: JsonBodyProperty[] | null = null;
+        let queryParams: ParamProperty[] | null = null;
+        let pathParams: ParamProperty[] | null = null;
+        let queryObjRange: { start: number; end: number } | null = null;
+        let pathObjRange: { start: number; end: number } | null = null;
         if (node.arguments.length >= 2) {
           const optionsArg = node.arguments[1];
           if (ts.isObjectLiteralExpression(optionsArg)) {
@@ -51,6 +55,23 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
             ) as import("typescript").PropertyAssignment | undefined;
             if (jsonProp && ts.isObjectLiteralExpression(jsonProp.initializer)) {
               jsonBody = extractJsonProperties(ts, sourceFile, jsonProp.initializer);
+            }
+
+            // Extract params.query and params.path
+            const paramsProp = optionsArg.properties.find(
+              (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "params",
+            ) as import("typescript").PropertyAssignment | undefined;
+            if (paramsProp && ts.isObjectLiteralExpression(paramsProp.initializer)) {
+              for (const sub of paramsProp.initializer.properties) {
+                if (!ts.isPropertyAssignment(sub) || !ts.isIdentifier(sub.name)) continue;
+                if (sub.name.text === "query" && ts.isObjectLiteralExpression(sub.initializer)) {
+                  queryParams = extractParamNames(ts, sourceFile, sub.initializer);
+                  queryObjRange = { start: nodeStart(sub.initializer), end: sub.initializer.getEnd() };
+                } else if (sub.name.text === "path" && ts.isObjectLiteralExpression(sub.initializer)) {
+                  pathParams = extractParamNames(ts, sourceFile, sub.initializer);
+                  pathObjRange = { start: nodeStart(sub.initializer), end: sub.initializer.getEnd() };
+                }
+              }
             }
           }
         }
@@ -63,6 +84,10 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
           callStart: nodeStart(node),
           callLength: nodeLen(node),
           jsonBody,
+          queryParams,
+          pathParams,
+          queryObjRange,
+          pathObjRange,
         });
       }
     }
@@ -123,4 +148,26 @@ function extractJsonProperties(
     });
   }
   return props;
+}
+
+function extractParamNames(
+  ts: TS,
+  sf: SourceFile,
+  obj: import("typescript").ObjectLiteralExpression,
+): ParamProperty[] {
+  function nodeStart(n: Node): number {
+    return n.getStart(sf);
+  }
+  function nodeLen(n: Node): number {
+    return n.getEnd() - nodeStart(n);
+  }
+
+  const params: ParamProperty[] = [];
+  for (const prop of obj.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const name = ts.isIdentifier(prop.name) ? prop.name.text : ts.isStringLiteral(prop.name) ? prop.name.text : null;
+    if (!name) continue;
+    params.push({ name, nameStart: nodeStart(prop.name), nameLength: nodeLen(prop.name) });
+  }
+  return params;
 }

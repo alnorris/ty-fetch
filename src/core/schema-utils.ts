@@ -26,7 +26,35 @@ export function getResponseSchema(operation: any): any | null {
   return resp?.content?.["application/json"]?.schema ?? null;
 }
 
+/** Resolve a $ref pointer to a parameter definition. */
+function resolveParamRef(ref: string, spec: OpenAPISpec): any {
+  const match = ref.match(/^#\/components\/parameters\/(.+)$/);
+  if (match) return (spec as any).components?.parameters?.[match[1]] ?? null;
+  // Also try schemas ref as fallback
+  return resolveSchemaRef({ $ref: ref }, spec);
+}
+
 /** Return true if the operation's request body is marked as required. */
 export function isRequestBodyRequired(operation: any): boolean {
   return !!operation?.requestBody?.required;
+}
+
+/** Extract parameter definitions from an operation and its parent path item. */
+export function getOperationParams(
+  operation: any,
+  pathItem: any,
+  spec: OpenAPISpec,
+  filterIn: "query" | "path",
+): Array<{ name: string; required: boolean }> {
+  const allParams = [...(operation?.parameters ?? []), ...(pathItem?.parameters ?? [])];
+  const result: Array<{ name: string; required: boolean }> = [];
+  const seen = new Set<string>();
+  for (const param of allParams) {
+    const resolved = param.$ref ? resolveParamRef(param.$ref, spec) ?? param : param;
+    if (resolved?.in === filterIn && resolved?.name && !seen.has(resolved.name)) {
+      seen.add(resolved.name);
+      result.push({ name: resolved.name, required: !!resolved.required });
+    }
+  }
+  return result;
 }

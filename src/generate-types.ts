@@ -195,14 +195,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
             const paramSchema = resolved.schema?.$ref
               ? (resolveRef(spec, resolved.schema.$ref) ?? resolved.schema)
               : (resolved.schema ?? null);
-            const tsType =
-              paramSchema?.type === "integer"
-                ? "number"
-                : paramSchema?.type === "number"
-                  ? "number"
-                  : paramSchema?.type === "boolean"
-                    ? "boolean"
-                    : "string";
+            const tsType = inferParamType(paramSchema);
             queryParams.push({
               name: resolved.name,
               type: tsType,
@@ -278,6 +271,28 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
   lines.push("}");
 
   return lines.join("\n");
+}
+
+/** Infer a TypeScript type string from an OpenAPI parameter schema, including enum unions and arrays. */
+function inferParamType(paramSchema: OpenAPISchema | null | undefined): string {
+  if (!paramSchema) return "string";
+
+  // Enum → string literal union
+  if (paramSchema.enum && paramSchema.enum.length > 0) {
+    return paramSchema.enum
+      .map((v) => (typeof v === "string" ? `"${v}"` : String(v)))
+      .join(" | ");
+  }
+
+  // Array with items
+  if (paramSchema.type === "array" && paramSchema.items) {
+    const itemType = inferParamType(paramSchema.items);
+    return `(${itemType})[]`;
+  }
+
+  if (paramSchema.type === "integer" || paramSchema.type === "number") return "number";
+  if (paramSchema.type === "boolean") return "boolean";
+  return "string";
 }
 
 function resolveRef(spec: FullOpenAPISpec, ref: string): OpenAPISchema | undefined {
