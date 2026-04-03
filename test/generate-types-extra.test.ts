@@ -189,7 +189,7 @@ describe("type generation edge cases", () => {
     assert.ok(content.includes("post("), "should generate POST overload from 201 response");
   });
 
-  it("generates empty TyFetch interface for endpoints with no response content", () => {
+  it("generates overload with void response for endpoints with no response content", () => {
     const spec = makeSpec({
       "/void": {
         delete: {
@@ -198,11 +198,106 @@ describe("type generation edge cases", () => {
       },
     });
     const result = generatePerDomain([makeDomain(spec)], [{ domain: "test.com", path: "/void" }]);
-    // The path matches but no overloads are generated (no JSON response)
-    if (result.size > 0) {
-      const content = result.get("test_com.d.ts")!;
-      assert.ok(!content.includes("delete("), "should not generate overload for 204");
+    assert.ok(result.size > 0, "should generate a .d.ts file");
+    const content = result.get("test_com.d.ts")!;
+    assert.ok(content.includes("delete("), "should generate overload for 204");
+    assert.ok(content.includes("void"), "response type should be void");
+  });
+
+  it("generates void response with typed path params for no-body endpoints", () => {
+    const spec = makeSpec({
+      "/items/{itemId}": {
+        delete: {
+          summary: "Delete an item",
+          parameters: [{ name: "itemId", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "204": { description: "No Content" } },
+        },
+      },
+    });
+    const result = generatePerDomain([makeDomain(spec)], [{ domain: "test.com", path: "/items/123" }]);
+    const content = result.get("test_com.d.ts")!;
+    assert.ok(content.includes("delete("), "should generate delete overload");
+    assert.ok(content.includes("FetchResult<Test_Items_ItemId_Delete>"), "should reference response type");
+    assert.ok(content.includes("type Test_Items_ItemId_Delete = void"), "response type should be void");
+    assert.ok(content.includes("PathParams"), "should generate path params type");
+    assert.ok(content.includes("itemId: string"), "should have itemId param");
+  });
+
+  it("includes JSDoc with summary on overloads", () => {
+    const spec = makeSpec({
+      "/pets": {
+        get: {
+          summary: "List all pets",
+          responses: { "200": { content: { "application/json": { schema: { type: "array", items: { type: "string" } } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.ok(result.includes("/** List all pets */"), "overload should have JSDoc with summary");
+  });
+
+  it("includes JSDoc with summary and description on overloads", () => {
+    const spec = makeSpec({
+      "/pets": {
+        get: {
+          summary: "List all pets",
+          description: "Returns a paginated list of all pets in the store.",
+          responses: { "200": { content: { "application/json": { schema: { type: "array", items: { type: "string" } } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.ok(result.includes("List all pets"), "should include summary");
+    assert.ok(result.includes("Returns a paginated list"), "should include description");
+  });
+
+  it("omits duplicate description when same as summary", () => {
+    const spec = makeSpec({
+      "/pets": {
+        get: {
+          summary: "List all pets",
+          description: "List all pets",
+          responses: { "200": { content: { "application/json": { schema: { type: "array", items: { type: "string" } } } } } },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    const matches = result.match(/List all pets/g);
+    // summary appears in type comment + JSDoc, but description should not duplicate JSDoc
+    assert.ok(matches, "should include summary");
+    // Count JSDoc occurrences (each overload gets one, but description shouldn't double up within a single JSDoc)
+    const jsdocBlocks = result.match(/\/\*\*[\s\S]*?\*\//g) ?? [];
+    for (const block of jsdocBlocks) {
+      const count = (block.match(/List all pets/g) ?? []).length;
+      assert.ok(count <= 1, `JSDoc block should not repeat summary, found ${count} times`);
     }
+  });
+
+  it("includes property descriptions in response types", () => {
+    const spec = makeSpec({
+      "/pets": {
+        get: {
+          responses: {
+            "200": {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string", description: "The pet's name" },
+                      status: { type: "string", description: "Current adoption status" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const result = generateDtsContent([makeDomain(spec)]);
+    assert.ok(result.includes("/** The pet's name */"), "should include property description for name");
+    assert.ok(result.includes("/** Current adoption status */"), "should include property description for status");
   });
 
   it("handles $ref in response schema", () => {

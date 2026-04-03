@@ -135,14 +135,17 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         if (["parameters", "summary", "description"].includes(method)) continue;
         if (!operation?.responses) continue;
 
-        const successResp = operation.responses["200"] ?? operation.responses["201"];
+        const successResp =
+          operation.responses["200"] ?? operation.responses["201"] ?? operation.responses["204"];
         // OpenAPI 3.x: content.application/json.schema
         // Swagger 2.0: schema directly on response
         const jsonContent = successResp?.content?.["application/json"];
         const swagger2Schema = (successResp as any)?.schema;
-        if (!jsonContent?.schema && !jsonContent?.example && !swagger2Schema) continue;
+        const hasResponseSchema = !!(jsonContent?.schema || jsonContent?.example || swagger2Schema);
 
-        const schema = jsonContent?.schema ?? swagger2Schema ?? inferSchemaFromExample(jsonContent?.example);
+        const schema = hasResponseSchema
+          ? (jsonContent?.schema ?? swagger2Schema ?? inferSchemaFromExample(jsonContent?.example))
+          : null;
         const fullUrl = `${baseUrl}${basePath}${path}`;
 
         const baseName = sanitizeTypeName(domain, path, method);
@@ -150,7 +153,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         typeNameCounter.set(baseName, count + 1);
         const typeName = count > 0 ? `${baseName}_${count}` : baseName;
 
-        const typeBody = schemaToType(schema, resolver, 1);
+        const typeBody = schema ? schemaToType(schema, resolver, 1) : "void";
         const opDesc = (operation as any).summary ?? (operation as any).description;
         if (opDesc) {
           typeDefinitions.push(`  /** ${method.toUpperCase()} ${path} — ${opDesc.replace(/\*\//g, "* /")} */`);
@@ -254,19 +257,34 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         const optionsType = `Options<${bodyTypeArg}, ${pathParamsArg}, ${queryParamsArg}, ${headersArg}>`;
         const resultType = `Promise<FetchResult<${typeName}>>`;
 
+        // Build JSDoc for the overload from operation summary/description
+        const opSummary = (operation as any).summary;
+        const opDescription = (operation as any).description;
+        const jsdocLines: string[] = [];
+        if (opSummary) jsdocLines.push(opSummary.replace(/\*\//g, "* /"));
+        if (opDescription && opDescription.trim() !== (opSummary ?? "").trim()) {
+          if (jsdocLines.length > 0) jsdocLines.push("");
+          jsdocLines.push(opDescription.replace(/\*\//g, "* /").trim());
+        }
+        const jsdoc = jsdocLines.length > 0
+          ? jsdocLines.length === 1
+            ? `    /** ${jsdocLines[0]} */\n`
+            : `    /**\n${jsdocLines.map((l) => `     * ${l}`).join("\n")}\n     */\n`
+          : "";
+
         // Full URL overload (for direct ty.get("https://...") calls)
         overloads.push(
-          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ${resultType};`,
+          `${jsdoc}    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ${resultType};`,
         );
         // Relative path overloads (for ty.create({ prefixUrl }) instance calls)
         const relWithBase = `${basePath}${path}`;
         overloads.push(
-          `    ${method}(url: \`${escapeTemplateUrl(relWithBase)}\`, options?: ${optionsType}): ${resultType};`,
+          `${jsdoc}    ${method}(url: \`${escapeTemplateUrl(relWithBase)}\`, options?: ${optionsType}): ${resultType};`,
         );
         if (basePath) {
           // Also emit without basePath for instances that include basePath in prefixUrl
           overloads.push(
-            `    ${method}(url: \`${escapeTemplateUrl(path)}\`, options?: ${optionsType}): ${resultType};`,
+            `${jsdoc}    ${method}(url: \`${escapeTemplateUrl(path)}\`, options?: ${optionsType}): ${resultType};`,
           );
         }
         // Don't break — emit an overload per HTTP method
@@ -280,7 +298,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
   );
   lines.push("");
   lines.push("export interface TyFetch {");
-  lines.push(...overloads.map((l) => l.replace(/^ {4}/, "  ")));
+  lines.push(...overloads.map((l) => l.replace(/^ {4}/gm, "  ")));
   lines.push("}");
 
   return lines.join("\n");

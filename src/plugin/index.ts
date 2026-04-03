@@ -409,9 +409,41 @@ function init(modules: { typescript: typeof import("typescript") }) {
         const specPath = findSpecPath(hoverPath, entry.spec);
         if (!specPath) continue;
 
-        const methods = Object.entries(entry.spec.paths[specPath])
-          .filter(([k]) => !["parameters", "summary", "description"].includes(k))
-          .map(([m, d]) => `${m.toUpperCase()}: ${(d as any).summary ?? "(no description)"}`);
+        const pathObj = entry.spec.paths[specPath];
+        const httpMethod = call.httpMethod?.toLowerCase() ?? null;
+        const lines: string[] = [`${entry.spec.info?.title ?? parsed.domain} — ${hoverPath}`, ""];
+
+        const methodEntries = Object.entries(pathObj)
+          .filter(([k]) => !["parameters", "summary", "description"].includes(k));
+
+        for (const [m, op] of methodEntries) {
+          const operation = op as any;
+          const isActive = httpMethod === m;
+          const label = `${m.toUpperCase()}: ${operation.summary ?? "(no summary)"}`;
+          lines.push(isActive ? `▸ ${label}` : label);
+
+          // Show description for the active method, or all if no specific method
+          if ((isActive || !httpMethod) && operation.description) {
+            const desc = operation.description.trim();
+            if (desc !== (operation.summary ?? "").trim()) {
+              lines.push(`  ${desc}`);
+            }
+          }
+
+          // Show parameters for the active method
+          if (isActive) {
+            const params: any[] = [...(pathObj.parameters ?? []), ...(operation.parameters ?? [])];
+            if (params.length > 0) {
+              lines.push("");
+              lines.push("  Parameters:");
+              for (const p of params) {
+                const req = p.required ? " (required)" : "";
+                const desc = p.description ? ` — ${p.description.trim()}` : "";
+                lines.push(`    ${p.in} ${p.name}${req}${desc}`);
+              }
+            }
+          }
+        }
 
         return {
           kind: ts.ScriptElementKind.string,
@@ -421,7 +453,7 @@ function init(modules: { typescript: typeof import("typescript") }) {
           displayParts: [
             {
               kind: "text",
-              text: [`${entry.spec.info?.title ?? parsed.domain} — ${hoverPath}`, "", ...methods].join("\n"),
+              text: lines.join("\n"),
             },
           ],
         };
