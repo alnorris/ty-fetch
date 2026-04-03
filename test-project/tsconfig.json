@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "strict": true,
+    "lib": ["ES2022", "DOM"],
+    "plugins": [
+      { "name": "typed-fetch-plugin-poc" }
+    ]
+  },
+  "include": ["*.ts"]
+}
