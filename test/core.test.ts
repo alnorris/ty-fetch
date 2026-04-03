@@ -1,16 +1,16 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 // Import core modules
 import {
-  parseFetchUrl,
-  getBasePath,
-  stripBasePath,
-  pathExistsInSpec,
   findClosestPath,
   findSpecPath,
+  getBasePath,
   matchesPathTemplate,
+  parseFetchUrl,
+  pathExistsInSpec,
   resolveSchemaRef,
+  stripBasePath,
   validateJsonBody,
 } from "../src/core/index";
 
@@ -88,10 +88,7 @@ describe("matchesPathTemplate", () => {
   });
 
   it("matches multiple params", () => {
-    assert.equal(
-      matchesPathTemplate("/repos/anthropics/claude-code", "/repos/{owner}/{repo}"),
-      true
-    );
+    assert.equal(matchesPathTemplate("/repos/anthropics/claude-code", "/repos/{owner}/{repo}"), true);
   });
 
   it("rejects different segment count", () => {
@@ -210,7 +207,15 @@ describe("validateJsonBody", () => {
 
   it("passes valid body", () => {
     const props = [
-      { name: "name", nameStart: 0, nameLength: 4, valueStart: 6, valueLength: 5, valueText: "John", valueKind: "string" },
+      {
+        name: "name",
+        nameStart: 0,
+        nameLength: 4,
+        valueStart: 6,
+        valueLength: 5,
+        valueText: "John",
+        valueKind: "string",
+      },
     ];
     const diags = validateJsonBody(props, schema, spec, 0);
     assert.equal(diags.length, 0);
@@ -218,7 +223,15 @@ describe("validateJsonBody", () => {
 
   it("catches type mismatch — number instead of string", () => {
     const props = [
-      { name: "name", nameStart: 0, nameLength: 4, valueStart: 6, valueLength: 3, valueText: "123", valueKind: "number" },
+      {
+        name: "name",
+        nameStart: 0,
+        nameLength: 4,
+        valueStart: 6,
+        valueLength: 3,
+        valueText: "123",
+        valueKind: "number",
+      },
     ];
     const diags = validateJsonBody(props, schema, spec, 0);
     assert.equal(diags.length, 1);
@@ -229,8 +242,24 @@ describe("validateJsonBody", () => {
 
   it("catches invalid enum value", () => {
     const props = [
-      { name: "name", nameStart: 0, nameLength: 4, valueStart: 6, valueLength: 4, valueText: "John", valueKind: "string" },
-      { name: "status", nameStart: 12, nameLength: 6, valueStart: 20, valueLength: 7, valueText: "banana", valueKind: "string" },
+      {
+        name: "name",
+        nameStart: 0,
+        nameLength: 4,
+        valueStart: 6,
+        valueLength: 4,
+        valueText: "John",
+        valueKind: "string",
+      },
+      {
+        name: "status",
+        nameStart: 12,
+        nameLength: 6,
+        valueStart: 20,
+        valueLength: 7,
+        valueText: "banana",
+        valueKind: "string",
+      },
     ];
     const diags = validateJsonBody(props, schema, spec, 0);
     assert.equal(diags.length, 1);
@@ -241,8 +270,24 @@ describe("validateJsonBody", () => {
 
   it("catches unknown property", () => {
     const props = [
-      { name: "name", nameStart: 0, nameLength: 4, valueStart: 6, valueLength: 4, valueText: "John", valueKind: "string" },
-      { name: "bogus", nameStart: 12, nameLength: 5, valueStart: 19, valueLength: 1, valueText: "1", valueKind: "number" },
+      {
+        name: "name",
+        nameStart: 0,
+        nameLength: 4,
+        valueStart: 6,
+        valueLength: 4,
+        valueText: "John",
+        valueKind: "string",
+      },
+      {
+        name: "bogus",
+        nameStart: 12,
+        nameLength: 5,
+        valueStart: 19,
+        valueLength: 1,
+        valueText: "1",
+        valueKind: "number",
+      },
     ];
     const diags = validateJsonBody(props, schema, spec, 0);
     assert.equal(diags.length, 1);
@@ -264,8 +309,24 @@ describe("validateJsonBody", () => {
 
   it("catches multiple errors at once", () => {
     const props = [
-      { name: "age", nameStart: 0, nameLength: 3, valueStart: 5, valueLength: 5, valueText: "young", valueKind: "string" },
-      { name: "fake", nameStart: 12, nameLength: 4, valueStart: 18, valueLength: 1, valueText: "1", valueKind: "number" },
+      {
+        name: "age",
+        nameStart: 0,
+        nameLength: 3,
+        valueStart: 5,
+        valueLength: 5,
+        valueText: "young",
+        valueKind: "string",
+      },
+      {
+        name: "fake",
+        nameStart: 12,
+        nameLength: 4,
+        valueStart: 18,
+        valueLength: 1,
+        valueText: "1",
+        valueKind: "number",
+      },
     ];
     const diags = validateJsonBody(props, schema, spec, 0);
     // missing "name" + type mismatch on "age" + unknown "fake"

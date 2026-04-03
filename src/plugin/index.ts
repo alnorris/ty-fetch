@@ -1,13 +1,19 @@
 import type ts from "typescript";
-import { generatePerDomain, type DomainSpec } from "../generate-types";
 import {
-  specCache, ensureSpec, registerSpecs,
-  parseFetchUrl, getBasePath, stripBasePath,
-  pathExistsInSpec, findClosestPath, findSpecPath,
-  resolveSchemaRef, validateJsonBody,
+  ensureSpec,
+  findClosestPath,
   findFetchCalls,
-  type OpenAPISpec,
+  findSpecPath,
+  getBasePath,
+  parseFetchUrl,
+  pathExistsInSpec,
+  registerSpecs,
+  resolveSchemaRef,
+  specCache,
+  stripBasePath,
+  validateJsonBody,
 } from "../core";
+import { type DomainSpec, generatePerDomain } from "../generate-types";
 
 let lastGeneratedUrls = "";
 
@@ -15,8 +21,7 @@ function init(modules: { typescript: typeof import("typescript") }) {
   const ts = modules.typescript;
 
   function create(info: ts.server.PluginCreateInfo) {
-    const logger = (msg: string) =>
-      info.project.projectService.logger.info(`[ty-fetch] ${msg}`);
+    const logger = (msg: string) => info.project.projectService.logger.info(`[ty-fetch] ${msg}`);
     logger("Plugin initialized");
 
     // Register user-provided spec overrides from tsconfig plugin config
@@ -36,13 +41,17 @@ function init(modules: { typescript: typeof import("typescript") }) {
     }
 
     function onSpecLoaded() {
-      try { regenerateTypes(logger); } catch (e) { logger(`Type generation failed: ${e}`); }
+      try {
+        regenerateTypes(logger);
+      } catch (e) {
+        logger(`Type generation failed: ${e}`);
+      }
       info.project.refreshDiagnostics();
     }
 
     function regenerateTypes(log: (msg: string) => void) {
-      const fs = require("fs") as typeof import("fs");
-      const path = require("path") as typeof import("path");
+      const fs = require("node:fs") as typeof import("fs");
+      const path = require("node:path") as typeof import("path");
 
       const domainSpecs: DomainSpec[] = [];
       for (const [domain, entry] of specCache.entries()) {
@@ -121,11 +130,17 @@ function init(modules: { typescript: typeof import("typescript") }) {
         if (!pathExistsInSpec(apiPath, entry.spec)) {
           const allPaths = Object.keys(entry.spec.paths);
           const suggestion = findClosestPath(apiPath, allPaths);
-          const msg = `Path '${apiPath}' does not exist in ${entry.spec.info?.title ?? parsed.domain}.`
-            + (suggestion ? ` Did you mean '${suggestion}'?` : "");
+          const msg =
+            `Path '${apiPath}' does not exist in ${entry.spec.info?.title ?? parsed.domain}.` +
+            (suggestion ? ` Did you mean '${suggestion}'?` : "");
           extra.push({
-            file: sourceFile, start: call.urlStart, length: call.urlLength,
-            messageText: msg, category: ts.DiagnosticCategory.Error, code: 99001, source: "ty-fetch",
+            file: sourceFile,
+            start: call.urlStart,
+            length: call.urlLength,
+            messageText: msg,
+            category: ts.DiagnosticCategory.Error,
+            code: 99001,
+            source: "ty-fetch",
           });
         }
 
@@ -141,14 +156,20 @@ function init(modules: { typescript: typeof import("typescript") }) {
               const resolved = resolveSchemaRef(reqSchema, entry.spec);
               if (resolved?.properties) {
                 // Find jsonObj start from the call expression in the AST
-                const callNode = sourceFile.statements.length > 0 ? findCallAtPosition(ts, sourceFile, call.callStart) : null;
+                const callNode =
+                  sourceFile.statements.length > 0 ? findCallAtPosition(ts, sourceFile, call.callStart) : null;
                 const jsonObjStart = callNode ? getJsonObjStart(ts, callNode) : call.callStart;
 
                 const bodyDiags = validateJsonBody(call.jsonBody, resolved, entry.spec, jsonObjStart);
                 for (const d of bodyDiags) {
                   extra.push({
-                    file: sourceFile, start: d.start, length: d.length,
-                    messageText: d.message, category: ts.DiagnosticCategory.Error, code: d.code, source: "ty-fetch",
+                    file: sourceFile,
+                    start: d.start,
+                    length: d.length,
+                    messageText: d.message,
+                    category: ts.DiagnosticCategory.Error,
+                    code: d.code,
+                    source: "ty-fetch",
                   });
                 }
               }
@@ -158,10 +179,18 @@ function init(modules: { typescript: typeof import("typescript") }) {
       }
 
       // Regenerate types when URLs change
-      const currentUrls = calls.map((c) => c.url).filter((u) => parseFetchUrl(u)).sort().join("\n");
+      const currentUrls = calls
+        .map((c) => c.url)
+        .filter((u) => parseFetchUrl(u))
+        .sort()
+        .join("\n");
       if (currentUrls !== lastGeneratedUrls) {
         lastGeneratedUrls = currentUrls;
-        try { regenerateTypes(logger); } catch (e) { logger(`Type generation failed: ${e}`); }
+        try {
+          regenerateTypes(logger);
+        } catch (e) {
+          logger(`Type generation failed: ${e}`);
+        }
       }
 
       return [...prior, ...extra];
@@ -195,7 +224,7 @@ function init(modules: { typescript: typeof import("typescript") }) {
           pathEntries.push({
             name: fullUrl,
             kind: ts.ScriptElementKind.string,
-            sortText: "0" + specPath,
+            sortText: `0${specPath}`,
             replacementSpan: { start: call.urlStart, length: call.urlLength },
             insertText: fullUrl,
             labelDetails: { description: available.map((m) => m.toUpperCase()).join(", ") },
@@ -204,7 +233,9 @@ function init(modules: { typescript: typeof import("typescript") }) {
 
         const filtered = pathEntries.filter((e) => e.name.startsWith(call.url) || call.url.endsWith("/"));
         return {
-          isGlobalCompletion: false, isMemberCompletion: false, isNewIdentifierLocation: false,
+          isGlobalCompletion: false,
+          isMemberCompletion: false,
+          isNewIdentifierLocation: false,
           entries: filtered.length > 0 ? filtered : pathEntries,
         };
       }
@@ -228,7 +259,8 @@ function init(modules: { typescript: typeof import("typescript") }) {
         const entry = ensureSpec(parsed.domain, logger, onSpecLoaded);
         if (entry.status === "loading") {
           return {
-            kind: ts.ScriptElementKind.string, kindModifiers: "",
+            kind: ts.ScriptElementKind.string,
+            kindModifiers: "",
             textSpan: { start: call.urlStart, length: call.urlLength },
             documentation: [],
             displayParts: [{ kind: "text", text: `Loading spec for ${parsed.domain}...` }],
@@ -245,10 +277,16 @@ function init(modules: { typescript: typeof import("typescript") }) {
           .map(([m, d]) => `${m.toUpperCase()}: ${(d as any).summary ?? "(no description)"}`);
 
         return {
-          kind: ts.ScriptElementKind.string, kindModifiers: "",
+          kind: ts.ScriptElementKind.string,
+          kindModifiers: "",
           textSpan: { start: call.urlStart, length: call.urlLength },
           documentation: [],
-          displayParts: [{ kind: "text", text: [`${entry.spec.info?.title ?? parsed.domain} — ${hoverPath}`, "", ...methods].join("\n") }],
+          displayParts: [
+            {
+              kind: "text",
+              text: [`${entry.spec.info?.title ?? parsed.domain} — ${hoverPath}`, "", ...methods].join("\n"),
+            },
+          ],
         };
       }
       return prior;
@@ -261,11 +299,18 @@ function init(modules: { typescript: typeof import("typescript") }) {
 }
 
 // Helper to find a CallExpression at a position in the AST
-function findCallAtPosition(ts: typeof import("typescript"), sourceFile: import("typescript").SourceFile, pos: number): import("typescript").CallExpression | null {
+function findCallAtPosition(
+  ts: typeof import("typescript"),
+  sourceFile: import("typescript").SourceFile,
+  pos: number,
+): import("typescript").CallExpression | null {
   let found: import("typescript").CallExpression | null = null;
   function visit(node: import("typescript").Node) {
     if (found) return;
-    if (ts.isCallExpression(node) && node.getStart() === pos) { found = node; return; }
+    if (ts.isCallExpression(node) && node.getStart() === pos) {
+      found = node;
+      return;
+    }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
@@ -277,7 +322,7 @@ function getJsonObjStart(ts: typeof import("typescript"), call: import("typescri
   const opts = call.arguments[1];
   if (!ts.isObjectLiteralExpression(opts)) return call.getStart();
   const jsonProp = opts.properties.find(
-    (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "body"
+    (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "body",
   ) as import("typescript").PropertyAssignment | undefined;
   if (!jsonProp || !ts.isObjectLiteralExpression(jsonProp.initializer)) return call.getStart();
   return jsonProp.initializer.getStart();

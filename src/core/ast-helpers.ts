@@ -10,8 +10,12 @@ type Node = import("typescript").Node;
 export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] {
   const results: FetchCallInfo[] = [];
 
-  function nodeStart(node: Node): number { return node.getStart(sourceFile); }
-  function nodeLen(node: Node): number { return node.getEnd() - nodeStart(node); }
+  function nodeStart(node: Node): number {
+    return node.getStart(sourceFile);
+  }
+  function nodeLen(node: Node): number {
+    return node.getEnd() - nodeStart(node);
+  }
 
   function visit(node: Node) {
     if (ts.isCallExpression(node) && node.arguments.length > 0) {
@@ -36,14 +40,14 @@ export function findFetchCalls(ts: TS, sourceFile: SourceFile): FetchCallInfo[] 
       const arg = node.arguments[0];
       if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
         const urlStart = nodeStart(arg) + 1; // skip opening quote
-        const urlLength = nodeLen(arg) - 2;  // exclude quotes
+        const urlLength = nodeLen(arg) - 2; // exclude quotes
 
         let jsonBody: JsonBodyProperty[] | null = null;
         if (node.arguments.length >= 2) {
           const optionsArg = node.arguments[1];
           if (ts.isObjectLiteralExpression(optionsArg)) {
             const jsonProp = optionsArg.properties.find(
-              (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "body"
+              (p) => ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "body",
             ) as import("typescript").PropertyAssignment | undefined;
             if (jsonProp && ts.isObjectLiteralExpression(jsonProp.initializer)) {
               jsonBody = extractJsonProperties(ts, sourceFile, jsonProp.initializer);
@@ -74,15 +78,17 @@ function extractJsonProperties(
   sf: SourceFile,
   obj: import("typescript").ObjectLiteralExpression,
 ): JsonBodyProperty[] {
-  function nodeStart(n: Node): number { return n.getStart(sf); }
-  function nodeLen(n: Node): number { return n.getEnd() - nodeStart(n); }
+  function nodeStart(n: Node): number {
+    return n.getStart(sf);
+  }
+  function nodeLen(n: Node): number {
+    return n.getEnd() - nodeStart(n);
+  }
 
   const props: JsonBodyProperty[] = [];
   for (const prop of obj.properties) {
     if (!ts.isPropertyAssignment(prop)) continue;
-    const name = ts.isIdentifier(prop.name) ? prop.name.text
-      : ts.isStringLiteral(prop.name) ? prop.name.text
-      : null;
+    const name = ts.isIdentifier(prop.name) ? prop.name.text : ts.isStringLiteral(prop.name) ? prop.name.text : null;
     if (!name) continue;
 
     const valueNode = prop.initializer;
@@ -90,11 +96,14 @@ function extractJsonProperties(
     let valueText = "";
 
     if (ts.isNumericLiteral(valueNode)) {
-      valueKind = "number"; valueText = valueNode.text;
+      valueKind = "number";
+      valueText = valueNode.text;
     } else if (ts.isStringLiteral(valueNode)) {
-      valueKind = "string"; valueText = valueNode.text;
+      valueKind = "string";
+      valueText = valueNode.text;
     } else if (valueNode.kind === ts.SyntaxKind.TrueKeyword || valueNode.kind === ts.SyntaxKind.FalseKeyword) {
-      valueKind = "boolean"; valueText = valueNode.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false";
+      valueKind = "boolean";
+      valueText = valueNode.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false";
     } else if (valueNode.kind === ts.SyntaxKind.NullKeyword) {
       valueKind = "null";
     } else if (ts.isArrayLiteralExpression(valueNode)) {

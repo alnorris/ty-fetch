@@ -63,7 +63,7 @@ export interface DomainSpec {
  * Generate one .d.ts per domain — keeps each file under TS overload limits.
  * Returns a map of filename → content.
  */
-const MAX_OVERLOADS_PER_FILE = 400;
+const _MAX_OVERLOADS_PER_FILE = 400;
 
 /**
  * Filter spec paths to only those matching URLs seen in the codebase.
@@ -71,7 +71,7 @@ const MAX_OVERLOADS_PER_FILE = 400;
  */
 export function generatePerDomain(
   domainSpecs: DomainSpec[],
-  usedUrls: Array<{ domain: string; path: string }>
+  usedUrls: Array<{ domain: string; path: string }>,
 ): Map<string, string> {
   const result = new Map<string, string>();
 
@@ -143,8 +143,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         if (["parameters", "summary", "description"].includes(method)) continue;
         if (!operation?.responses) continue;
 
-        const successResp =
-          operation.responses["200"] ?? operation.responses["201"];
+        const successResp = operation.responses["200"] ?? operation.responses["201"];
         const jsonContent = successResp?.content?.["application/json"];
         if (!jsonContent?.schema && !jsonContent?.example) continue;
 
@@ -187,19 +186,27 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         // ── Query params type ──
         const queryParams: Array<{ name: string; type: string; required: boolean; description?: string }> = [];
         // Collect from operation-level and path-level parameters
-        const allParams = [
-          ...(operation.parameters ?? []),
-          ...((spec.paths[path] as any)?.parameters ?? []),
-        ];
+        const allParams = [...(operation.parameters ?? []), ...((spec.paths[path] as any)?.parameters ?? [])];
         for (const param of allParams) {
           const resolved = param.$ref ? resolveRef(spec, param.$ref) : param;
           if (resolved?.in === "query") {
-            const paramSchema = resolved.schema?.$ref ? resolveRef(spec, resolved.schema.$ref) ?? resolved.schema : resolved.schema ?? null;
-            const tsType = paramSchema?.type === "integer" ? "number"
-              : paramSchema?.type === "number" ? "number"
-              : paramSchema?.type === "boolean" ? "boolean"
-              : "string";
-            queryParams.push({ name: resolved.name, type: tsType, required: !!resolved.required, description: resolved.description });
+            const paramSchema = resolved.schema?.$ref
+              ? (resolveRef(spec, resolved.schema.$ref) ?? resolved.schema)
+              : (resolved.schema ?? null);
+            const tsType =
+              paramSchema?.type === "integer"
+                ? "number"
+                : paramSchema?.type === "number"
+                  ? "number"
+                  : paramSchema?.type === "boolean"
+                    ? "boolean"
+                    : "string";
+            queryParams.push({
+              name: resolved.name,
+              type: tsType,
+              required: !!resolved.required,
+              description: resolved.description,
+            });
           }
         }
         let queryParamsArg = "never";
@@ -252,7 +259,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         const optionsType = `Options<${bodyTypeArg}, ${pathParamsArg}, ${queryParamsArg}, ${headersArg}>`;
 
         overloads.push(
-          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ResponsePromise<${typeName}>;`
+          `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): Promise<FetchResult<${typeName}>>;`,
         );
         // Don't break — emit an overload per HTTP method
       }
@@ -260,19 +267,18 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
   }
 
   lines.push("// Response types");
-  lines.push(...typeDefinitions.map((l) => l.startsWith("  type ") ? l.replace(/^  /, "export ") : l.replace(/^  /, "")));
+  lines.push(
+    ...typeDefinitions.map((l) => (l.startsWith("  type ") ? l.replace(/^ {2}/, "export ") : l.replace(/^ {2}/, ""))),
+  );
   lines.push("");
   lines.push("export interface TyFetch {");
-  lines.push(...overloads.map((l) => l.replace(/^    /, "  ")));
+  lines.push(...overloads.map((l) => l.replace(/^ {4}/, "  ")));
   lines.push("}");
 
   return lines.join("\n");
 }
 
-function resolveRef(
-  spec: FullOpenAPISpec,
-  ref: string
-): OpenAPISchema | undefined {
+function resolveRef(spec: FullOpenAPISpec, ref: string): OpenAPISchema | undefined {
   // Handle #/components/schemas/Foo
   const match = ref.match(/^#\/components\/schemas\/(.+)$/);
   if (!match) return undefined;
@@ -301,7 +307,7 @@ function inferSchemaFromExample(example: unknown): OpenAPISchema {
 function schemaToType(
   schema: OpenAPISchema,
   resolver: (ref: string) => OpenAPISchema | undefined,
-  depth: number
+  depth: number,
 ): string {
   // Depth limit to avoid huge nested types
   if (depth > 4) return "any";
@@ -324,16 +330,12 @@ function schemaToType(
   // Handle oneOf/anyOf
   if (schema.oneOf || schema.anyOf) {
     const variants = (schema.oneOf ?? schema.anyOf)!;
-    return variants
-      .map((v) => schemaToType(v, resolver, depth))
-      .join(" | ");
+    return variants.map((v) => schemaToType(v, resolver, depth)).join(" | ");
   }
 
   // Handle allOf (intersection)
   if (schema.allOf) {
-    return schema.allOf
-      .map((v) => schemaToType(v, resolver, depth))
-      .join(" & ");
+    return schema.allOf.map((v) => schemaToType(v, resolver, depth)).join(" & ");
   }
 
   // Handle object
@@ -368,13 +370,9 @@ function schemaToType(
 
   // Handle array
   if (schema.type === "array") {
-    const itemType = schema.items
-      ? schemaToType(schema.items, resolver, depth)
-      : "any";
+    const itemType = schema.items ? schemaToType(schema.items, resolver, depth) : "any";
     // Wrap complex types in parens
-    return itemType.includes("|") || itemType.includes("&")
-      ? `(${itemType})[]`
-      : `${itemType}[]`;
+    return itemType.includes("|") || itemType.includes("&") ? `(${itemType})[]` : `${itemType}[]`;
   }
 
   // Primitives
@@ -415,12 +413,52 @@ function capitalize(s: string): string {
 }
 
 const TS_RESERVED = new Set([
-  "break", "case", "catch", "class", "const", "continue", "debugger",
-  "default", "delete", "do", "else", "enum", "export", "extends", "false",
-  "finally", "for", "function", "if", "import", "in", "instanceof", "new",
-  "null", "return", "super", "switch", "this", "throw", "true", "try",
-  "typeof", "var", "void", "while", "with", "as", "implements", "interface",
-  "let", "package", "private", "protected", "public", "static", "yield",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "as",
+  "implements",
+  "interface",
+  "let",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "static",
+  "yield",
 ]);
 
 function safePropName(key: string): string {

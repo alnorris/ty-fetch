@@ -1,13 +1,8 @@
-import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import {
-  fetchSpecForDomain,
-  specCache,
-  KNOWN_SPECS,
-} from "../src/core/spec-cache";
+import { describe, it } from "node:test";
+import { fetchSpecForDomain, KNOWN_SPECS, specCache } from "../src/core/spec-cache";
 import { generatePerDomain } from "../src/generate-types";
-import { getBasePath } from "../src/core/url-parser";
 
 // ── Helper: start a local HTTP server ──────────────────────────────
 
@@ -233,9 +228,7 @@ describe("example inference in type generation", () => {
                 content: {
                   "application/json": {
                     example: {
-                      users: [
-                        { id: 1, name: "Alice", active: true },
-                      ],
+                      users: [{ id: 1, name: "Alice", active: true }],
                       total: 42,
                     },
                   },
@@ -378,13 +371,23 @@ describe("JSDoc descriptions in generated types", () => {
         "/search": {
           get: {
             parameters: [
-              { name: "q", in: "query", required: true, description: "Search query string", schema: { type: "string" } },
+              {
+                name: "q",
+                in: "query",
+                required: true,
+                description: "Search query string",
+                schema: { type: "string" },
+              },
               { name: "limit", in: "query", description: "Max results to return", schema: { type: "integer" } },
             ],
             responses: {
               "200": {
                 description: "OK",
-                content: { "application/json": { schema: { type: "object", properties: { results: { type: "array", items: { type: "string" } } } } } },
+                content: {
+                  "application/json": {
+                    schema: { type: "object", properties: { results: { type: "array", items: { type: "string" } } } },
+                  },
+                },
               },
             },
           },
@@ -419,7 +422,9 @@ describe("headers from security schemes", () => {
             responses: {
               "200": {
                 description: "OK",
-                content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } } } } },
+                content: {
+                  "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } } } },
+                },
               },
             },
           },

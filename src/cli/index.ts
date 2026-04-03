@@ -1,13 +1,18 @@
 #!/usr/bin/env node
+import * as path from "node:path";
 import * as ts from "typescript";
-import * as path from "path";
 import {
-  parseFetchUrl, stripBasePath,
-  pathExistsInSpec, findClosestPath, findSpecPath,
-  resolveSchemaRef, validateJsonBody,
-  fetchSpecForDomain, registerSpecs,
+  type FetchCallInfo,
+  fetchSpecForDomain,
+  findClosestPath,
   findFetchCalls,
-  type FetchCallInfo, type ValidationDiagnostic,
+  findSpecPath,
+  parseFetchUrl,
+  pathExistsInSpec,
+  registerSpecs,
+  resolveSchemaRef,
+  stripBasePath,
+  validateJsonBody,
 } from "../core";
 
 interface FileDiagnostic {
@@ -40,10 +45,15 @@ Options:
     process.exit(1);
   }
 
-  const parsedConfig = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(path.resolve(tsconfigPath)));
+  const parsedConfig = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(path.resolve(tsconfigPath)),
+  );
 
   // Load custom spec overrides from tsconfig plugin config
-  const plugins: Array<{ name?: string; specs?: Record<string, string> }> = configFile.config?.compilerOptions?.plugins ?? [];
+  const plugins: Array<{ name?: string; specs?: Record<string, string> }> =
+    configFile.config?.compilerOptions?.plugins ?? [];
   const pluginConfig = plugins.find((p) => p.name === "ty-fetch" || p.name === "ty-fetch/plugin");
   if (pluginConfig?.specs) {
     registerSpecs(pluginConfig.specs, path.dirname(path.resolve(tsconfigPath)));
@@ -94,13 +104,16 @@ Options:
     if (!pathExistsInSpec(apiPath, entry.spec)) {
       const allPaths = Object.keys(entry.spec.paths);
       const suggestion = findClosestPath(apiPath, allPaths);
-      const msg = `Path '${apiPath}' does not exist in ${entry.spec.info?.title ?? parsed.domain}.`
-        + (suggestion ? ` Did you mean '${suggestion}'?` : "");
+      const msg =
+        `Path '${apiPath}' does not exist in ${entry.spec.info?.title ?? parsed.domain}.` +
+        (suggestion ? ` Did you mean '${suggestion}'?` : "");
       const pos = sourceFile.getLineAndCharacterOfPosition(call.urlStart);
       diagnostics.push({
         file: path.relative(process.cwd(), sourceFile.fileName),
-        line: pos.line + 1, col: pos.character + 1,
-        message: msg, code: 99001,
+        line: pos.line + 1,
+        col: pos.character + 1,
+        message: msg,
+        code: 99001,
       });
     }
 
@@ -121,8 +134,10 @@ Options:
               const pos = sourceFile.getLineAndCharacterOfPosition(d.start);
               diagnostics.push({
                 file: path.relative(process.cwd(), sourceFile.fileName),
-                line: pos.line + 1, col: pos.character + 1,
-                message: d.message, code: d.code,
+                line: pos.line + 1,
+                col: pos.character + 1,
+                message: d.message,
+                code: d.code,
               });
             }
           }

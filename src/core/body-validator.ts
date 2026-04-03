@@ -1,5 +1,5 @@
-import type { OpenAPISpec, JsonBodyProperty, ValidationDiagnostic } from "./types";
 import { resolveSchemaRef } from "./schema-utils";
+import type { JsonBodyProperty, OpenAPISpec, ValidationDiagnostic } from "./types";
 
 /**
  * Validate a JSON body object against an OpenAPI schema.

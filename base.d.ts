@@ -17,29 +17,31 @@ export interface Options<
   prefixUrl?: string;
 }
 
-export interface ResponsePromise<T = unknown> extends PromiseLike<T> {
-  json(): Promise<T>;
-  text(): Promise<string>;
-  blob(): Promise<Blob>;
-  arrayBuffer(): Promise<ArrayBuffer>;
-  formData(): Promise<FormData>;
+export type FetchResult<TData = unknown, TError = unknown> =
+  | { data: TData; error: undefined; response: Response }
+  | { data: undefined; error: TError; response: Response };
+
+export interface Middleware {
+  onRequest?: (request: Request) => Request | RequestInit | void | Promise<Request | RequestInit | void>;
+  onResponse?: (response: Response) => Response | void | Promise<Response | void>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BaseOptions = Options<any, Record<string, any>, Record<string, any>>;
 
 export interface TyFetch {
-  (url: string, options?: BaseOptions): ResponsePromise<any>;
-  get(url: string, options?: BaseOptions): ResponsePromise<any>;
-  post(url: string, options?: BaseOptions): ResponsePromise<any>;
-  put(url: string, options?: BaseOptions): ResponsePromise<any>;
-  patch(url: string, options?: BaseOptions): ResponsePromise<any>;
-  delete(url: string, options?: BaseOptions): ResponsePromise<any>;
-  head(url: string, options?: BaseOptions): ResponsePromise<any>;
+  (url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  get(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  post(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  put(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  patch(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  delete(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
+  head(url: string, options?: BaseOptions): Promise<FetchResult<any>>;
   create(defaults?: BaseOptions): TyFetch;
   extend(defaults?: BaseOptions): TyFetch;
+  use(middleware: Middleware): TyFetch;
   HTTPError: typeof HTTPError;
 }
 
-declare const tf: TyFetch;
-export default tf;
+declare const ty: TyFetch;
+export default ty;

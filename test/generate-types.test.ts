@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { generateDtsContent, generatePerDomain } from "../src/generate-types";
 
 const petSpec = {
@@ -23,11 +23,17 @@ const petSpec = {
     "/pet": {
       put: {
         responses: { "200": { content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } } } },
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } } },
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } },
+        },
       },
       post: {
         responses: { "200": { content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } } } },
-        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } } },
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/Pet" } } },
+        },
       },
     },
     "/pet/{petId}": {
@@ -39,7 +45,11 @@ const petSpec = {
     "/pet/findByStatus": {
       get: {
         parameters: [{ name: "status", in: "query", schema: { type: "string" } }],
-        responses: { "200": { content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Pet" } } } } } },
+        responses: {
+          "200": {
+            content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Pet" } } } },
+          },
+        },
       },
     },
   },
@@ -100,9 +110,7 @@ describe("generateDtsContent", () => {
 
 describe("generatePerDomain", () => {
   it("filters to only used URLs", () => {
-    const usedUrls = [
-      { domain: "petstore.io", path: "/api/v3/pet/findByStatus" },
-    ];
+    const usedUrls = [{ domain: "petstore.io", path: "/api/v3/pet/findByStatus" }];
     const files = generatePerDomain([ds], usedUrls);
     assert.equal(files.size, 1);
     const content = [...files.values()][0];

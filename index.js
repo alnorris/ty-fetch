@@ -6,26 +6,12 @@ class HTTPError extends Error {
   }
 }
 
-class ResponsePromise {
-  constructor(fetchPromise) {
-    this._promise = fetchPromise.then((res) => {
-      if (!res.ok) throw new HTTPError(res);
-      return res;
-    });
-  }
-  then(resolve, reject) { return this._promise.then(resolve, reject); }
-  catch(fn) { return this._promise.catch(fn); }
-  finally(fn) { return this._promise.finally(fn); }
-  json() { return this._promise.then((r) => r.json()); }
-  text() { return this._promise.then((r) => r.text()); }
-  blob() { return this._promise.then((r) => r.blob()); }
-  arrayBuffer() { return this._promise.then((r) => r.arrayBuffer()); }
-  formData() { return this._promise.then((r) => r.formData()); }
-}
-
 function createInstance(defaults = {}) {
-  function tf(url, options = {}) {
+  const middlewares = [...(defaults._middlewares || [])];
+
+  function ty(url, options = {}) {
     const merged = { ...defaults, ...options };
+    delete merged._middlewares;
     const { body, params, prefixUrl, ...fetchOpts } = merged;
 
     // Build URL from prefix + path params
@@ -58,20 +44,66 @@ function createInstance(defaults = {}) {
       fetchOpts.headers = { "content-type": "application/json", ...fetchOpts.headers };
     }
 
-    return new ResponsePromise(fetch(fullUrl, fetchOpts));
+    // Build request
+    const request = new Request(fullUrl, fetchOpts);
+
+    // Run middleware chain
+    const execute = async (req) => {
+      let currentReq = req;
+      const onResponses = [];
+
+      for (const mw of middlewares) {
+        if (mw.onRequest) {
+          const result = await mw.onRequest(currentReq);
+          if (result instanceof Request) currentReq = result;
+          else if (result) currentReq = new Request(currentReq, result);
+        }
+        if (mw.onResponse) onResponses.push(mw.onResponse);
+      }
+
+      let response = await fetch(currentReq);
+
+      for (const handler of onResponses) {
+        const result = await handler(response);
+        if (result instanceof Response) response = result;
+      }
+
+      return response;
+    };
+
+    return execute(request).then(async (response) => {
+      if (!response.ok) {
+        let error;
+        try {
+          error = await response.json();
+        } catch {
+          error = { message: response.statusText };
+        }
+        return { data: undefined, error, response };
+      }
+      let data;
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        data = await response.text();
+      }
+      return { data, error: undefined, response };
+    });
   }
 
-  tf.get = (url, opts) => tf(url, { ...opts, method: "GET" });
-  tf.post = (url, opts) => tf(url, { ...opts, method: "POST" });
-  tf.put = (url, opts) => tf(url, { ...opts, method: "PUT" });
-  tf.patch = (url, opts) => tf(url, { ...opts, method: "PATCH" });
-  tf.delete = (url, opts) => tf(url, { ...opts, method: "DELETE" });
-  tf.head = (url, opts) => tf(url, { ...opts, method: "HEAD" });
-  tf.create = (newDefaults) => createInstance(newDefaults);
-  tf.extend = (newDefaults) => createInstance({ ...defaults, ...newDefaults });
-  tf.HTTPError = HTTPError;
+  ty.get = (url, opts) => ty(url, { ...opts, method: "GET" });
+  ty.post = (url, opts) => ty(url, { ...opts, method: "POST" });
+  ty.put = (url, opts) => ty(url, { ...opts, method: "PUT" });
+  ty.patch = (url, opts) => ty(url, { ...opts, method: "PATCH" });
+  ty.delete = (url, opts) => ty(url, { ...opts, method: "DELETE" });
+  ty.head = (url, opts) => ty(url, { ...opts, method: "HEAD" });
+  ty.create = (newDefaults) => createInstance({ ...newDefaults, _middlewares: middlewares });
+  ty.extend = (newDefaults) => createInstance({ ...defaults, ...newDefaults, _middlewares: middlewares });
+  ty.use = (mw) => { middlewares.push(mw); return ty; };
+  ty.HTTPError = HTTPError;
 
-  return tf;
+  return ty;
 }
 
 module.exports = createInstance();

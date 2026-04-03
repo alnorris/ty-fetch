@@ -10,11 +10,8 @@ export const specCache = new Map<string, SpecEntry>();
  * Values can be URLs (https://...) or file paths (resolved relative to basePath).
  * These override built-in KNOWN_SPECS for the same domain.
  */
-export function registerSpecs(
-  specs: Record<string, string>,
-  basePath: string,
-): void {
-  const pathMod = require("path") as typeof import("path");
+export function registerSpecs(specs: Record<string, string>, basePath: string): void {
+  const pathMod = require("node:path") as typeof import("path");
   for (const [domain, value] of Object.entries(specs)) {
     if (value.startsWith("http://") || value.startsWith("https://")) {
       KNOWN_SPECS[domain] = value;
@@ -85,10 +82,7 @@ export function ensureSpec(
 /**
  * Synchronous version — fetches and blocks. Used by CLI.
  */
-export async function ensureSpecSync(
-  domain: string,
-  log: (msg: string) => void,
-): Promise<SpecEntry> {
+export async function ensureSpecSync(domain: string, _log: (msg: string) => void): Promise<SpecEntry> {
   const existing = specCache.get(domain);
   if (existing?.status !== "loading") return existing ?? { status: "not-found", spec: null, fetchedAt: 0 };
 
@@ -96,10 +90,7 @@ export async function ensureSpecSync(
   return existing;
 }
 
-export async function fetchSpecForDomain(
-  domain: string,
-  log: (msg: string) => void,
-): Promise<SpecEntry> {
+export async function fetchSpecForDomain(domain: string, log: (msg: string) => void): Promise<SpecEntry> {
   const existing = specCache.get(domain);
   if (existing && existing.status === "loaded") return existing;
 
@@ -152,13 +143,9 @@ const WELL_KNOWN_PATHS = [
   "/api-docs/openapi.json",
 ];
 
-async function probeWellKnownSpecs(
-  domain: string,
-  log: (msg: string) => void,
-): Promise<OpenAPISpec | null> {
+async function probeWellKnownSpecs(domain: string, log: (msg: string) => void): Promise<OpenAPISpec | null> {
   // Try HTTPS first, then HTTP for local/dev servers
-  const protocols = domain.startsWith("127.0.0.1") || domain.startsWith("localhost")
-    ? ["http"] : ["https", "http"];
+  const protocols = domain.startsWith("127.0.0.1") || domain.startsWith("localhost") ? ["http"] : ["https", "http"];
   for (const proto of protocols) {
     for (const path of WELL_KNOWN_PATHS) {
       const url = `${proto}://${domain}${path}`;
@@ -177,8 +164,7 @@ async function probeWellKnownSpecs(
 }
 
 function parseSpec(data: string, source: string): OpenAPISpec {
-  const isYaml = /\.ya?ml$/i.test(source) ||
-    (!source.endsWith(".json") && !data.trimStart().startsWith("{"));
+  const isYaml = /\.ya?ml$/i.test(source) || (!source.endsWith(".json") && !data.trimStart().startsWith("{"));
   if (isYaml) {
     return yaml.load(data) as OpenAPISpec;
   }
@@ -188,30 +174,35 @@ function parseSpec(data: string, source: string): OpenAPISpec {
 async function fetchSpec(urlOrPath: string): Promise<OpenAPISpec> {
   // Local file path — read from disk
   if (!urlOrPath.startsWith("http://") && !urlOrPath.startsWith("https://")) {
-    const fs = require("fs") as typeof import("fs");
+    const fs = require("node:fs") as typeof import("fs");
     const data = fs.readFileSync(urlOrPath, "utf-8");
     return parseSpec(data, urlOrPath);
   }
 
   // Remote URL — fetch via HTTPS/HTTP
-  const mod = urlOrPath.startsWith("https://") ? await import("https") : await import("http");
+  const mod = urlOrPath.startsWith("https://") ? await import("node:https") : await import("node:http");
   return new Promise((resolve, reject) => {
-    mod.get(urlOrPath, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        fetchSpec(res.headers.location).then(resolve, reject);
-        return;
-      }
-      if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
-      let data = "";
-      res.on("data", (chunk: string) => (data += chunk));
-      res.on("end", () => {
-        try { resolve(parseSpec(data, urlOrPath)); }
-        catch (err) { reject(new Error(`Failed to parse spec: ${err}`)); }
-      });
-      res.on("error", reject);
-    }).on("error", reject);
+    mod
+      .get(urlOrPath, { headers: { "User-Agent": "ty-fetch" } }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          fetchSpec(res.headers.location).then(resolve, reject);
+          return;
+        }
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        let data = "";
+        res.on("data", (chunk: string) => (data += chunk));
+        res.on("end", () => {
+          try {
+            resolve(parseSpec(data, urlOrPath));
+          } catch (err) {
+            reject(new Error(`Failed to parse spec: ${err}`));
+          }
+        });
+        res.on("error", reject);
+      })
+      .on("error", reject);
   });
 }

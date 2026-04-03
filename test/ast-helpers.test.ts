@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import ts from "typescript";
 import { findFetchCalls } from "../src/core/index";
 
@@ -40,7 +40,10 @@ describe("findFetchCalls", () => {
     `);
     const calls = findFetchCalls(ts, sf);
     assert.equal(calls.length, 5);
-    assert.deepEqual(calls.map(c => c.httpMethod), ["get", "post", "put", "patch", "delete"]);
+    assert.deepEqual(
+      calls.map((c) => c.httpMethod),
+      ["get", "post", "put", "patch", "delete"],
+    );
   });
 
   it("detects direct call tf(url)", () => {
