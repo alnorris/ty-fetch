@@ -23,7 +23,7 @@ interface OpenAPIOperation {
   responses?: Record<
     string,
     {
-      content?: Record<string, { schema?: OpenAPISchema }>;
+      content?: Record<string, { schema?: OpenAPISchema; example?: unknown }>;
       description?: string;
     }
   >;
@@ -43,7 +43,11 @@ interface OpenAPIOperation {
 
 interface FullOpenAPISpec {
   paths: Record<string, Record<string, OpenAPIOperation>>;
-  components?: { schemas?: Record<string, OpenAPISchema> };
+  components?: {
+    schemas?: Record<string, OpenAPISchema>;
+    securitySchemes?: Record<string, { type?: string; in?: string; name?: string; description?: string }>;
+  };
+  security?: Array<Record<string, string[]>>;
   servers?: Array<{ url?: string }>;
   info?: { title?: string; version?: string };
 }
@@ -141,9 +145,10 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
 
         const successResp =
           operation.responses["200"] ?? operation.responses["201"];
-        if (!successResp?.content?.["application/json"]?.schema) continue;
+        const jsonContent = successResp?.content?.["application/json"];
+        if (!jsonContent?.schema && !jsonContent?.example) continue;
 
-        const schema = successResp.content["application/json"].schema;
+        const schema = jsonContent.schema ?? inferSchemaFromExample(jsonContent.example);
         const fullUrl = `${baseUrl}${basePath}${path}`;
 
         const baseName = sanitizeTypeName(domain, path, method);
@@ -152,6 +157,10 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         const typeName = count > 0 ? `${baseName}_${count}` : baseName;
 
         const typeBody = schemaToType(schema, resolver, 1);
+        const opDesc = (operation as any).summary ?? (operation as any).description;
+        if (opDesc) {
+          typeDefinitions.push(`  /** ${method.toUpperCase()} ${path} — ${opDesc.replace(/\*\//g, "* /")} */`);
+        }
         typeDefinitions.push(`  type ${typeName} = ${typeBody};`);
 
         // ── Body type ──
@@ -176,7 +185,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         }
 
         // ── Query params type ──
-        const queryParams: Array<{ name: string; type: string; required: boolean }> = [];
+        const queryParams: Array<{ name: string; type: string; required: boolean; description?: string }> = [];
         // Collect from operation-level and path-level parameters
         const allParams = [
           ...(operation.parameters ?? []),
@@ -190,20 +199,57 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
               : paramSchema?.type === "number" ? "number"
               : paramSchema?.type === "boolean" ? "boolean"
               : "string";
-            queryParams.push({ name: resolved.name, type: tsType, required: !!resolved.required });
+            queryParams.push({ name: resolved.name, type: tsType, required: !!resolved.required, description: resolved.description });
           }
         }
         let queryParamsArg = "never";
         if (queryParams.length > 0) {
           const queryParamsTypeName = `${typeName}_QueryParams`;
-          const queryProps = queryParams
-            .map((q) => `${safePropName(q.name)}${q.required ? "" : "?"}: ${q.type}`)
-            .join("; ");
-          typeDefinitions.push(`  type ${queryParamsTypeName} = { ${queryProps} };`);
+          const queryPropLines: string[] = [];
+          for (const q of queryParams) {
+            if (q.description) queryPropLines.push(`/** ${q.description.replace(/\*\//g, "* /")} */`);
+            queryPropLines.push(`${safePropName(q.name)}${q.required ? "" : "?"}: ${q.type};`);
+          }
+          typeDefinitions.push(`  type ${queryParamsTypeName} = { ${queryPropLines.join(" ")} };`);
           queryParamsArg = queryParamsTypeName;
         }
 
-        const optionsType = `Options<${bodyTypeArg}, ${pathParamsArg}, ${queryParamsArg}>`;
+        // ── Headers type (from security schemes + header params) ──
+        const headerProps: Array<{ name: string; description?: string; required: boolean }> = [];
+        // Collect from header parameters
+        for (const param of allParams) {
+          const resolved = param.$ref ? resolveRef(spec, param.$ref) : param;
+          if (resolved?.in === "header") {
+            headerProps.push({ name: resolved.name, description: resolved.description, required: !!resolved.required });
+          }
+        }
+        // Collect from security schemes
+        const opSecurity = (operation as any).security ?? spec.security;
+        if (opSecurity && spec.components?.securitySchemes) {
+          for (const req of opSecurity) {
+            for (const schemeName of Object.keys(req)) {
+              const scheme = spec.components.securitySchemes[schemeName];
+              if (scheme?.type === "apiKey" && scheme.in === "header" && scheme.name) {
+                if (!headerProps.some((h) => h.name === scheme.name)) {
+                  headerProps.push({ name: scheme.name, description: scheme.description, required: true });
+                }
+              }
+            }
+          }
+        }
+        let headersArg = "Record<string, string>";
+        if (headerProps.length > 0) {
+          const headersTypeName = `${typeName}_Headers`;
+          const headerPropLines: string[] = [];
+          for (const h of headerProps) {
+            if (h.description) headerPropLines.push(`/** ${h.description.replace(/\*\//g, "* /")} */`);
+            headerPropLines.push(`${safePropName(h.name)}${h.required ? "" : "?"}: string;`);
+          }
+          typeDefinitions.push(`  type ${headersTypeName} = { ${headerPropLines.join(" ")} };`);
+          headersArg = headersTypeName;
+        }
+
+        const optionsType = `Options<${bodyTypeArg}, ${pathParamsArg}, ${queryParamsArg}, ${headersArg}>`;
 
         overloads.push(
           `    ${method}(url: \`${escapeTemplateUrl(fullUrl)}\`, options?: ${optionsType}): ResponsePromise<${typeName}>;`
@@ -214,7 +260,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
   }
 
   lines.push("// Response types");
-  lines.push(...typeDefinitions.map((l) => l.replace(/^  /, "export ")));
+  lines.push(...typeDefinitions.map((l) => l.startsWith("  type ") ? l.replace(/^  /, "export ") : l.replace(/^  /, "")));
   lines.push("");
   lines.push("export interface TyFetch {");
   lines.push(...overloads.map((l) => l.replace(/^    /, "  ")));
@@ -233,13 +279,32 @@ function resolveRef(
   return spec.components?.schemas?.[match[1]];
 }
 
+/** Infer an OpenAPI schema from a JSON example value. */
+function inferSchemaFromExample(example: unknown): OpenAPISchema {
+  if (example === null || example === undefined) return { type: "string" };
+  if (typeof example === "string") return { type: "string" };
+  if (typeof example === "number") return { type: "number" };
+  if (typeof example === "boolean") return { type: "boolean" };
+  if (Array.isArray(example)) {
+    return { type: "array", items: example.length > 0 ? inferSchemaFromExample(example[0]) : { type: "string" } };
+  }
+  if (typeof example === "object") {
+    const properties: Record<string, OpenAPISchema> = {};
+    for (const [key, value] of Object.entries(example as Record<string, unknown>)) {
+      properties[key] = inferSchemaFromExample(value);
+    }
+    return { type: "object", properties };
+  }
+  return { type: "string" };
+}
+
 function schemaToType(
   schema: OpenAPISchema,
   resolver: (ref: string) => OpenAPISchema | undefined,
   depth: number
 ): string {
   // Depth limit to avoid huge nested types
-  if (depth > 2) return "any";
+  if (depth > 4) return "any";
 
   const indent = "  ".repeat(depth + 1);
   const outerIndent = "  ".repeat(depth);
@@ -280,6 +345,9 @@ function schemaToType(
     for (const [key, propSchema] of Object.entries(props)) {
       const optional = required.has(key) ? "" : "?";
       const propType = schemaToType(propSchema, resolver, depth + 1);
+      if (propSchema.description) {
+        propLines.push(`${indent}/** ${propSchema.description.replace(/\*\//g, "* /")} */`);
+      }
       propLines.push(`${indent}${safePropName(key)}${optional}: ${propType};`);
     }
 

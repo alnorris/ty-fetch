@@ -1,6 +1,6 @@
 {
   "name": "ty-fetch",
-  "version": "0.0.1",
+  "version": "0.0.2-beta.10",
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {
@@ -11,7 +11,8 @@
     "./plugin": {
       "types": "./dist/plugin/index.d.ts",
       "default": "./dist/plugin/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "ty-fetch": "dist/cli/index.js"
@@ -20,15 +21,21 @@
     "dist/",
     "base.d.ts",
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "plugin.js"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "build": "tsc -p tsconfig.build.json",
-    "watch": "tsc -p tsconfig.build.json --watch"
+    "watch": "tsc -p tsconfig.build.json --watch",
+    "prepublishOnly": "cp base.d.ts index.d.ts && npm run build"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.2",
     "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.1"
   }
 }

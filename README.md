@@ -1,34 +1,66 @@
-# ty-fetch
+# ⚡ ty-fetch
 
-TypeScript tooling that validates API calls against OpenAPI specs. Get autocomplete, diagnostics, and fully typed responses with zero manual types.
+**Automatic TypeScript types for any REST API. No codegen. No manual types. Just fetch.**
+
+ty-fetch is a TypeScript language service plugin that reads OpenAPI specs and gives you fully typed API calls — response types, request bodies, query params, headers, path validation, and autocomplete — all without a single line of generated code.
 
 ```ts
 import tf from "ty-fetch";
 
-const customers = await tf.get("https://api.stripe.com/v1/customers").json();
-// customers is fully typed — data, has_more, object, url all autocomplete
+// ✅ Fully typed — response, query params, headers all inferred from the spec
+const data = await tf.get("https://api.stripe.com/v1/customers", {
+  params: { query: { limit: 10 } },
+}).json();
+data.data // Customer[] — autocomplete just works
 
+// ❌ Typo? Caught instantly with a suggestion
 tf.get("https://api.stripe.com/v1/cutsomers");
 //                                  ~~~~~~~~~~
 // Error: Path '/v1/cutsomers' does not exist in Stripe API.
 //        Did you mean '/v1/customers'?
 ```
 
-## What it does
+---
 
-- **Path validation** — red squiggles for typos in API URLs, with "did you mean?" suggestions
-- **Typed responses** — response types generated from OpenAPI schemas, no manual `as` casts
-- **Typed request bodies** — body params validated against the spec
-- **Path & query params** — typed `params.path` and `params.query` based on the endpoint
-- **Autocomplete** — URL path completions inside string literals, filtered by HTTP method
-- **Hover info** — hover over a URL to see available methods and descriptions
+## 🤔 Why ty-fetch?
 
-Works as both a **TS language service plugin** (editor DX) and a **CLI** (CI validation).
+Every other OpenAPI tool makes you **run a codegen step**. You generate a client, import from generated files, and re-run the generator when the spec changes. It works, but it's friction.
 
-## Setup
+ty-fetch takes a completely different approach:
+
+| | Traditional codegen | ty-fetch |
+|---|---|---|
+| **Setup** | Install generator, run codegen, import client | `npm install ty-fetch` and go |
+| **When spec changes** | Re-run generator, fix imports | Types update automatically |
+| **What you write** | `client.customers.list()` | `tf.get("https://api.stripe.com/v1/customers")` |
+| **Build step** | Required | None |
+| **Generated files** | Committed to repo or `.gitignore`'d | None — types live in node_modules |
+
+**You write real URLs. The types just appear.**
+
+---
+
+## 🚀 Features
+
+- 🔮 **Zero codegen** — types generated on-the-fly by a TS plugin, not a build step
+- 📦 **Typed responses** — `.json()` returns the actual response type from the spec
+- ✏️ **Typed request bodies** — body params validated against the schema
+- 🔗 **Typed path & query params** — `params.path` and `params.query` based on the endpoint
+- 🔑 **Typed headers** — required headers (API keys, auth) from security schemes
+- 🚨 **Path validation** — red squiggles for typos, with "did you mean?" suggestions
+- 💡 **Autocomplete** — URL path completions inside string literals
+- 📖 **JSDoc descriptions** — property descriptions from the spec in hover tooltips
+- 🔍 **Auto-discovery** — probes well-known paths (`/openapi.json`, `/.well-known/openapi.yaml`) when no spec is configured
+- 📄 **YAML + JSON** — specs can be either format, local files or remote URLs
+- 🧠 **Example inference** — generates types from response `example` when `schema` is missing
+- ⚡ **On-demand** — only fetches specs and generates types for APIs you actually call
+
+---
+
+## 📦 Setup
 
 ```bash
-npm install github:alnorris/ty-fetch
+npm install ty-fetch
 ```
 
 Add the plugin to your `tsconfig.json`:
@@ -41,66 +73,75 @@ Add the plugin to your `tsconfig.json`:
 }
 ```
 
-In VS Code, make sure you're using the workspace TypeScript version (not the built-in one). Open the command palette and run **TypeScript: Select TypeScript Version** > **Use Workspace Version**.
+In VS Code, use the workspace TypeScript version:
+**Command Palette** → **TypeScript: Select TypeScript Version** → **Use Workspace Version**
 
-## Usage
+That's it. Start writing `tf.get("https://...")` and types appear automatically. ✨
 
-### The `ty-fetch` client
+---
 
-A lightweight HTTP client (similar to [ky](https://github.com/sindresorhus/ky)) with typed methods:
+## 🔧 Usage
 
 ```ts
 import tf from "ty-fetch";
 
-// GET with typed response
+// 📥 GET with typed response
 const customers = await tf.get("https://api.stripe.com/v1/customers").json();
 
-// POST with typed body
+// 📤 POST with typed body
 const customer = await tf.post("https://api.stripe.com/v1/customers", {
   body: { name: "Jane Doe", email: "jane@example.com" },
 }).json();
 
-// Path params
+// 🔗 Path params
 const repo = await tf.get("https://api.github.com/repos/{owner}/{repo}", {
   params: { path: { owner: "anthropics", repo: "claude-code" } },
 }).json();
 
-// Query params
-const pets = await tf.get("https://petstore3.swagger.io/api/v3/pet/findByStatus", {
-  params: { query: { status: "available" } },
+// 🔍 Query params
+const results = await tf.get("https://hn.algolia.com/api/v1/search_by_date", {
+  params: { query: { query: "typescript", hitsPerPage: 10 } },
+}).json();
+
+// 🔑 Headers (typed from security schemes)
+const data = await tf.get("https://api.example.com/v1/data", {
+  headers: { "x-api-key": process.env.API_KEY },
 }).json();
 ```
 
-Response methods:
+### Response methods
 
 | Method | Returns |
 |---|---|
-| `.json()` | `Promise<T>` (typed from spec) |
+| `.json()` | `Promise<T>` — typed from spec |
 | `.text()` | `Promise<string>` |
 | `.blob()` | `Promise<Blob>` |
 | `.arrayBuffer()` | `Promise<ArrayBuffer>` |
-| `await` directly | `T` (same as `.json()`) |
+| `await` directly | `T` — same as `.json()` |
 
-### CLI
+---
 
-Run validation in CI or from the terminal:
+## 🔍 Spec discovery
 
-```bash
-npx ty-fetch                    # uses ./tsconfig.json
-npx ty-fetch tsconfig.json      # explicit path
-npx ty-fetch --verbose          # show spec fetching details
-```
+### Auto-discovery (zero config)
+
+When ty-fetch encounters an API domain it hasn't seen before, it automatically probes these well-known paths:
 
 ```
-example.ts:21:11 - error TF99001: Path '/v1/cutsomers' does not exist in Stripe API. Did you mean '/v1/customers'?
-example.ts:57:11 - error TF99001: Path '/pets' does not exist in Swagger Petstore. Did you mean '/pet'?
-
-2 error(s) found.
+/.well-known/openapi.json
+/.well-known/openapi.yaml
+/openapi.json
+/openapi.yaml
+/api/openapi.json
+/docs/openapi.json
+/swagger.json
 ```
 
-## Custom specs
+If any return a valid OpenAPI spec → types are generated automatically. No config needed.
 
-Map domains to local files or URLs in your tsconfig plugin config:
+### Custom specs
+
+Map domains to local files or remote URLs in your tsconfig:
 
 ```jsonc
 {
@@ -109,7 +150,7 @@ Map domains to local files or URLs in your tsconfig plugin config:
       {
         "name": "ty-fetch/plugin",
         "specs": {
-          "api.internal.company.com": "./specs/internal-api.json",
+          "api.internal.company.com": "./specs/internal-api.yaml",
           "api.partner.com": "https://partner.com/openapi.json"
         }
       }
@@ -118,55 +159,53 @@ Map domains to local files or URLs in your tsconfig plugin config:
 }
 ```
 
-- **File paths** are resolved relative to the tsconfig directory
-- **URLs** are fetched over HTTPS
-- Custom specs override built-in defaults for the same domain
+- 📁 File paths resolved relative to tsconfig directory
+- 🌐 URLs fetched over HTTPS
+- 📄 JSON and YAML both supported
+- Custom specs override auto-discovery for the same domain
+- Works in both the editor plugin and the CLI
 
-This works in both the editor plugin and the CLI.
+---
 
-### Built-in specs
+## 🖥️ CLI
 
-These APIs are supported out of the box (no config needed):
+Validate API calls in CI — no editor required:
 
-| Domain | API | Paths |
-|---|---|---|
-| `api.stripe.com` | Stripe API | 414 |
-| `petstore3.swagger.io` | Swagger Petstore | 13 |
-| `api.github.com` | GitHub REST API | 551 |
-
-## How it works
-
-1. Plugin intercepts the TS language service (`getSemanticDiagnostics`, `getCompletionsAtPosition`, `getQuickInfoAtPosition`)
-2. Finds `fetch()` / `tf.get()` / `tf.post()` etc. calls with string literal URLs
-3. Extracts the domain and fetches the OpenAPI spec on-demand (cached after first fetch)
-4. Validates paths against the spec, suggests corrections via Levenshtein distance
-5. Generates typed overloads into `node_modules/ty-fetch/index.d.ts` using interface declaration merging — only for URLs actually used in your code
-
-Spec fetching is async. On first encounter of a domain, the plugin fires a background fetch and returns no extra diagnostics. When the spec arrives, `refreshDiagnostics()` triggers the editor to re-check. This follows the same pattern as [graphqlsp](https://github.com/0no-co/graphqlsp).
-
-## Architecture
-
-```
-src/
-  plugin/index.ts      TS language service plugin (diagnostics, completions, hover)
-  cli/index.ts         CLI entry point for CI validation
-  core/                Shared logic (URL parsing, spec cache, path matching, body validation)
-  generate-types.ts    OpenAPI schema -> TypeScript type declarations
-test-project/          Example project using the plugin
-test/                  Unit tests
+```bash
+npx ty-fetch                    # uses ./tsconfig.json
+npx ty-fetch tsconfig.json      # explicit path
+npx ty-fetch --verbose          # show spec fetching details
 ```
 
-## Development
+```
+src/api.ts:21:11 - error TF99001: Path '/v1/cutsomers' does not exist in Stripe API.
+                   Did you mean '/v1/customers'?
+
+1 error(s) found.
+```
+
+---
+
+## ⚙️ How it works
+
+1. 🔌 Plugin intercepts the TS language service
+2. 🔎 Finds `tf.get()` / `tf.post()` / `fetch()` calls with string literal URLs
+3. 📡 Extracts the domain, fetches the OpenAPI spec on-demand (cached after first fetch)
+4. ✅ Validates paths, suggests corrections via Levenshtein distance
+5. 🏗️ Generates typed overloads into `node_modules/ty-fetch/index.d.ts` via declaration merging — **only for URLs you actually use**
+
+Types are generated **only for endpoints you call** — not the entire spec. A 500-path API might produce just 5 overloads if that's all you use. This keeps TypeScript fast.
+
+---
+
+## 🧪 Development
 
 ```bash
 npm run build          # compile TypeScript
 npm run watch          # compile in watch mode
-npm test               # run unit tests
+npm test               # run unit tests (74 tests)
 ```
 
-To test the editor experience:
+## License
 
-1. Open `test-project/` in VS Code
-2. Select the workspace TypeScript version
-3. Restart the TS server (`TypeScript: Restart TS Server`)
-4. Edit `test-project/example.ts` and observe diagnostics/completions
+MIT

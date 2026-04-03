@@ -1,8 +1,11 @@
 export interface OpenAPISpec {
+  openapi?: string;
+  swagger?: string;
   paths: Record<string, Record<string, any>>;
   info?: { title?: string; version?: string };
   servers?: Array<{ url?: string }>;
   components?: { schemas?: Record<string, any> };
+  security?: Array<Record<string, string[]>>;
 }
 
 export interface SpecEntry {

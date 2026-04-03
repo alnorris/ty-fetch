@@ -70,13 +70,13 @@ describe("generateDtsContent", () => {
     assert.match(result, /Petstore_Pet_FindByStatus_Get_QueryParams.*status/);
   });
 
-  it("emits overloads with Options<Body, PathParams, QueryParams>", () => {
+  it("emits overloads with Options<Body, PathParams, QueryParams, Headers>", () => {
     // PUT /pet has body, no path params
-    assert.match(result, /put\(url:.*\/pet`.*Options<Petstore_Pet_Put_Body, never, never>/);
+    assert.match(result, /put\(url:.*\/pet`.*Options<Petstore_Pet_Put_Body, never, never/);
     // GET /pet/{petId} has path params, no body
-    assert.match(result, /get\(url:.*pet\/\$\{string\}`.*Options<never, Petstore_Pet_PetId_Get_PathParams, never>/);
+    assert.match(result, /get\(url:.*pet\/\$\{string\}`.*Options<never, Petstore_Pet_PetId_Get_PathParams, never/);
     // GET /pet/findByStatus has query params
-    assert.match(result, /get\(url:.*findByStatus`.*Options<never, never, Petstore_Pet_FindByStatus_Get_QueryParams>/);
+    assert.match(result, /get\(url:.*findByStatus`.*Options<never, never, Petstore_Pet_FindByStatus_Get_QueryParams/);
   });
 
   it("wraps overloads in TyFetch interface", () => {
