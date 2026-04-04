@@ -1,6 +1,7 @@
 node_modules/
 dist/
 __generated/
+index.d.ts
 *.tgz
 package-lock.json
 CLAUDE.md
