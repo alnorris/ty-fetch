@@ -59,6 +59,18 @@ export interface DomainSpec {
   spec: FullOpenAPISpec;
 }
 
+/** Context for tracking emitted named types ($ref and auto-extracted). */
+interface RefContext {
+  emittedRefs: Map<string, string>; // $ref path or auto-extract key → emitted type name
+  pendingTypes: string[]; // type definitions to emit (lazily collected)
+  domainPrefix: string; // e.g. "Petstore"
+}
+
+/** Minimum property count for auto-extracting nested objects into named types. */
+const AUTO_EXTRACT_MIN_PROPS = 4;
+/** Minimum depth at which auto-extraction kicks in (0 = top-level response). */
+const AUTO_EXTRACT_MIN_DEPTH = 2;
+
 /** Generate one .d.ts per domain, filtered to only paths matching URLs seen in the codebase. */
 export function generatePerDomain(
   domainSpecs: DomainSpec[],
@@ -118,10 +130,16 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
   const typeDefinitions: string[] = [];
   const overloads: string[] = [];
   const typeNameCounter = new Map<string, number>();
+  const allRefTypes: string[] = [];
 
   for (const ds of domainSpecs) {
     const { spec, domain, baseUrl, basePath } = ds;
     const resolver = (ref: string) => resolveRef(spec, ref);
+    const refCtx: RefContext = {
+      emittedRefs: new Map(),
+      pendingTypes: [],
+      domainPrefix: sanitizeDomainPrefix(domain),
+    };
 
     for (const [path, methods] of Object.entries(spec.paths)) {
       const methodOrder = ["get", "post", "put", "patch", "delete"];
@@ -153,7 +171,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         typeNameCounter.set(baseName, count + 1);
         const typeName = count > 0 ? `${baseName}_${count}` : baseName;
 
-        const typeBody = schema ? schemaToType(schema, resolver, 1) : "void";
+        const typeBody = schema ? schemaToType(schema, resolver, 1, refCtx, typeName) : "void";
         const opDesc = (operation as any).summary ?? (operation as any).description;
         if (opDesc) {
           typeDefinitions.push(`  /** ${method.toUpperCase()} ${path} — ${opDesc.replace(/\*\//g, "* /")} */`);
@@ -174,7 +192,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         let bodyTypeArg = "never";
         if (reqBodySchema) {
           const bodyTypeName = `${typeName}_Body`;
-          typeDefinitions.push(`  type ${bodyTypeName} = ${schemaToType(reqBodySchema, resolver, 1)};`);
+          typeDefinitions.push(`  type ${bodyTypeName} = ${schemaToType(reqBodySchema, resolver, 1, refCtx, bodyTypeName)};`);
           bodyTypeArg = bodyTypeName;
         }
 
@@ -199,7 +217,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
             }
             pathPropLines.push(`${safePropName(n)}: string;`);
           }
-          typeDefinitions.push(`  type ${pathParamsTypeName} = { ${pathPropLines.join(" ")} };`);
+          typeDefinitions.push(`  type ${pathParamsTypeName} = {\n${pathPropLines.map((l) => `    ${l}`).join("\n")}\n  };`);
           pathParamsArg = pathParamsTypeName;
         }
 
@@ -228,7 +246,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
             if (q.description) queryPropLines.push(`/** ${q.description.replace(/\*\//g, "* /")} */`);
             queryPropLines.push(`${safePropName(q.name)}${q.required ? "" : "?"}: ${q.type};`);
           }
-          typeDefinitions.push(`  type ${queryParamsTypeName} = { ${queryPropLines.join(" ")} };`);
+          typeDefinitions.push(`  type ${queryParamsTypeName} = {\n${queryPropLines.map((l) => `    ${l}`).join("\n")}\n  };`);
           queryParamsArg = queryParamsTypeName;
         }
 
@@ -263,7 +281,7 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
             if (h.description) headerPropLines.push(`/** ${h.description.replace(/\*\//g, "* /")} */`);
             headerPropLines.push(`${safePropName(h.name)}${h.required ? "" : "?"}: string;`);
           }
-          typeDefinitions.push(`  type ${headersTypeName} = { ${headerPropLines.join(" ")} };`);
+          typeDefinitions.push(`  type ${headersTypeName} = {\n${headerPropLines.map((l) => `    ${l}`).join("\n")}\n  };`);
           headersArg = headersTypeName;
         }
 
@@ -303,11 +321,16 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
         // Don't break — emit an overload per HTTP method
       }
     }
+
+    // Collect ref types emitted during this domain's processing
+    allRefTypes.push(...refCtx.pendingTypes);
   }
 
   lines.push("// Response types");
+  // Ref types first (component schemas), then endpoint types
+  const allTypes = [...allRefTypes, ...typeDefinitions];
   lines.push(
-    ...typeDefinitions.map((l) => (l.startsWith("  type ") ? l.replace(/^ {2}/, "export ") : l.replace(/^ {2}/, ""))),
+    ...allTypes.map((l) => (l.startsWith("  type ") ? l.replace(/^ {2}/, "export ") : l.replace(/^ {2}/, ""))),
   );
   lines.push("");
   lines.push("export interface TyFetch {");
@@ -365,24 +388,45 @@ function inferSchemaFromExample(example: unknown): OpenAPISchema {
   return { type: "string" };
 }
 
+/**
+ * Convert an OpenAPI schema to a TypeScript type string.
+ * @param typePath — When set, large nested objects are auto-extracted as named types using this as the name prefix.
+ */
 function schemaToType(
   schema: OpenAPISchema,
   resolver: (ref: string) => OpenAPISchema | undefined,
   depth: number,
+  refCtx?: RefContext,
+  typePath?: string,
 ): string {
   // Depth limit to avoid huge nested types
   if (depth > 4) return "any";
 
   const nullable = schema.nullable ? " | null" : "";
 
-  const indent = "  ".repeat(depth + 1);
-  const outerIndent = "  ".repeat(depth);
-
-  // Handle $ref
+  // Handle $ref — emit as named type when context available
   if (schema.$ref) {
+    if (refCtx) {
+      const existing = refCtx.emittedRefs.get(schema.$ref);
+      if (existing) return existing;
+      const match = schema.$ref.match(/^#\/components\/schemas\/(.+)$/);
+      if (match) {
+        const refName = match[1].replace(/[^a-zA-Z0-9]/g, "_");
+        const name = `${refCtx.domainPrefix}_${refName}`;
+        refCtx.emittedRefs.set(schema.$ref, name);
+        const resolved = resolver(schema.$ref);
+        if (!resolved) return "any";
+        const body = schemaToType(resolved, resolver, 1, refCtx, name);
+        if (resolved.description) {
+          refCtx.pendingTypes.push(`  /** ${resolved.description.replace(/\*\//g, "* /")} */`);
+        }
+        refCtx.pendingTypes.push(`  type ${name} = ${body};`);
+        return name;
+      }
+    }
     const resolved = resolver(schema.$ref);
     if (!resolved) return "any";
-    return schemaToType(resolved, resolver, depth);
+    return schemaToType(resolved, resolver, depth, refCtx, typePath);
   }
 
   // Handle enum
@@ -393,47 +437,39 @@ function schemaToType(
   // Handle oneOf/anyOf
   if (schema.oneOf || schema.anyOf) {
     const variants = (schema.oneOf ?? schema.anyOf)!;
-    return variants.map((v) => schemaToType(v, resolver, depth)).join(" | ");
+    return variants.map((v) => schemaToType(v, resolver, depth, refCtx, typePath)).join(" | ");
   }
 
   // Handle allOf (intersection)
   if (schema.allOf) {
-    return schema.allOf.map((v) => schemaToType(v, resolver, depth)).join(" & ");
+    return schema.allOf.map((v) => schemaToType(v, resolver, depth, refCtx, typePath)).join(" & ");
   }
 
   // Handle object
   if (schema.type === "object" || schema.properties) {
     const props = schema.properties ?? {};
-    const required = new Set(schema.required ?? []);
-    const propLines: string[] = [];
+    const propCount = Object.keys(props).length;
 
-    for (const [key, propSchema] of Object.entries(props)) {
-      const optional = required.has(key) ? "" : "?";
-      const propType = schemaToType(propSchema, resolver, depth + 1);
-      if (propSchema.description) {
-        propLines.push(`${indent}/** ${propSchema.description.replace(/\*\//g, "* /")} */`);
+    // Auto-extract large nested objects into named types
+    if (refCtx && typePath && depth >= AUTO_EXTRACT_MIN_DEPTH && propCount >= AUTO_EXTRACT_MIN_PROPS) {
+      if (!refCtx.emittedRefs.has(typePath)) {
+        refCtx.emittedRefs.set(typePath, typePath);
+        const body = buildObjectType(props, schema, resolver, 1, refCtx, typePath);
+        refCtx.pendingTypes.push(`  type ${typePath} = ${body};`);
       }
-      propLines.push(`${indent}${safePropName(key)}${optional}: ${propType};`);
+      return typePath + nullable;
     }
 
-    if (schema.additionalProperties) {
-      const valType =
-        typeof schema.additionalProperties === "object"
-          ? schemaToType(schema.additionalProperties, resolver, depth + 1)
-          : "any";
-      propLines.push(`${indent}[key: string]: ${valType};`);
-    }
-
-    if (propLines.length === 0) {
+    if (propCount === 0 && !schema.additionalProperties) {
       return "Record<string, any>";
     }
 
-    return `{\n${propLines.join("\n")}\n${outerIndent}}` + nullable;
+    return buildObjectType(props, schema, resolver, depth, refCtx, typePath) + nullable;
   }
 
-  // Handle array
+  // Handle array — pass typePath through so array items can be extracted
   if (schema.type === "array") {
-    const itemType = schema.items ? schemaToType(schema.items, resolver, depth) : "any";
+    const itemType = schema.items ? schemaToType(schema.items, resolver, depth, refCtx, typePath) : "any";
     // Wrap complex types in parens
     return itemType.includes("|") || itemType.includes("&") ? `(${itemType})[]` : `${itemType}[]`;
   }
@@ -454,12 +490,56 @@ function schemaToType(
   }
 }
 
-function sanitizeTypeName(domain: string, path: string, method: string): string {
-  // Convert "api.stripe.com" + "/v1/customers" + "get" → "Stripe_V1_Customers_Get"
+/** Build an inline object type body `{ prop: type; ... }`. */
+function buildObjectType(
+  props: Record<string, OpenAPISchema>,
+  schema: OpenAPISchema,
+  resolver: (ref: string) => OpenAPISchema | undefined,
+  depth: number,
+  refCtx?: RefContext,
+  parentPath?: string,
+): string {
+  const indent = "  ".repeat(depth + 1);
+  const outerIndent = "  ".repeat(depth);
+  const required = new Set(schema.required ?? []);
+  const propLines: string[] = [];
+
+  for (const [key, propSchema] of Object.entries(props)) {
+    const childPath = parentPath ? `${parentPath}_${sanitizePathSegment(key)}` : undefined;
+    const optional = required.has(key) ? "" : "?";
+    const propType = schemaToType(propSchema, resolver, depth + 1, refCtx, childPath);
+    if (propSchema.description) {
+      propLines.push(`${indent}/** ${propSchema.description.replace(/\*\//g, "* /")} */`);
+    }
+    propLines.push(`${indent}${safePropName(key)}${optional}: ${propType};`);
+  }
+
+  if (schema.additionalProperties) {
+    const valType =
+      typeof schema.additionalProperties === "object"
+        ? schemaToType(schema.additionalProperties, resolver, depth + 1, refCtx)
+        : "any";
+    propLines.push(`${indent}[key: string]: ${valType};`);
+  }
+
+  if (propLines.length === 0) {
+    return "Record<string, any>";
+  }
+
+  return `{\n${propLines.join("\n")}\n${outerIndent}}`;
+}
+
+function sanitizeDomainPrefix(domain: string): string {
   const domainPart = domain
     .replace(/^api\./, "")
     .replace(/\.\w+$/, "")
     .replace(/[^a-zA-Z0-9]/g, "_");
+  return capitalize(domainPart);
+}
+
+function sanitizeTypeName(domain: string, path: string, method: string): string {
+  // Convert "api.stripe.com" + "/v1/customers" + "get" → "Stripe_V1_Customers_Get"
+  const domainPart = sanitizeDomainPrefix(domain);
   const pathPart = path
     .replace(/[{}]/g, "")
     .split("/")
@@ -468,7 +548,7 @@ function sanitizeTypeName(domain: string, path: string, method: string): string 
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join("_");
   const methodPart = method.charAt(0).toUpperCase() + method.slice(1);
-  return `${capitalize(domainPart)}_${pathPart}_${methodPart}`;
+  return `${domainPart}_${pathPart}_${methodPart}`;
 }
 
 function capitalize(s: string): string {
@@ -527,6 +607,15 @@ const TS_RESERVED = new Set([
 function safePropName(key: string): string {
   if (TS_RESERVED.has(key)) return `"${key}"`;
   return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(key) ? key : `"${key}"`;
+}
+
+function sanitizePathSegment(key: string): string {
+  return key
+    .replace(/[^a-zA-Z0-9_]/g, "_")
+    .split("_")
+    .filter(Boolean)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join("_");
 }
 
 function escapeTemplateUrl(url: string): string {

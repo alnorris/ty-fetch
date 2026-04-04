@@ -139,10 +139,7 @@ Options:
     // Concatenate base types + generated augmentations into index.d.ts
     const augmentations = filenames.map((f) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
     const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
-    const tightenedBase = baseTypes
-      .replace(/options\?: Options<never>\)/g, "options?: Options<never, never, never>)")
-      .replace(/options\?: Options\)/g, "options?: Options<unknown, never, never>)");
-    fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [tightenedBase, "", ...augmentations].join("\n"), "utf-8");
+    fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [baseTypes, "", ...augmentations].join("\n"), "utf-8");
 
     console.log(`Generated types for ${filenames.length} API(s): ${filenames.join(", ")}`);
     process.exit(0);

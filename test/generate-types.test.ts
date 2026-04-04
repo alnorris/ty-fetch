@@ -73,11 +73,11 @@ describe("generateDtsContent", () => {
   });
 
   it("generates path params for /pet/{petId}", () => {
-    assert.match(result, /Petstore_Pet_PetId_Get_PathParams.*petId: string/);
+    assert.match(result, /Petstore_Pet_PetId_Get_PathParams[\s\S]*?petId: string/);
   });
 
   it("generates query params with enum types for /pet/findByStatus", () => {
-    assert.match(result, /Petstore_Pet_FindByStatus_Get_QueryParams.*status.*"available" \| "pending" \| "sold"/);
+    assert.match(result, /Petstore_Pet_FindByStatus_Get_QueryParams[\s\S]*?status[\s\S]*?"available" \| "pending" \| "sold"/);
   });
 
   it("emits overloads with Options<Body, PathParams, QueryParams, Headers>", () => {
@@ -109,12 +109,12 @@ describe("generateDtsContent", () => {
 
   it("generates enum union types for query params", () => {
     // status should be "available" | "pending" | "sold", not just string
-    assert.match(result, /QueryParams.*"available" \| "pending" \| "sold"/);
+    assert.match(result, /QueryParams[\s\S]*?"available" \| "pending" \| "sold"/);
   });
 
   it("does not generate plain string for enum query params", () => {
     // The QueryParams type should NOT have `status: string` — it should have the enum union
-    const qpMatch = result.match(/QueryParams = \{[^}]+\}/);
+    const qpMatch = result.match(/QueryParams = \{[\s\S]+?\};/);
     assert.ok(qpMatch, "QueryParams type should exist");
     assert.doesNotMatch(qpMatch[0], /status\??: string;/);
   });

@@ -136,12 +136,7 @@ function init(modules: { typescript: typeof import("typescript") }) {
         const augmentations = allFiles.map((f: string) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
         const pkgDir = path.join(typesDir, "..");
         const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
-        // Tighten base method overloads: set TPathParams and TQueryParams to never so the
-        // base overload doesn't match when params are passed — forcing specific overloads to match.
-        const tightenedBase = baseTypes
-          .replace(/options\?: Options<never>\)/g, "options?: Options<never, never, never>)")
-          .replace(/options\?: Options\)/g, "options?: Options<unknown, never, never>)");
-        fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [tightenedBase, "", ...augmentations].join("\n"), "utf-8");
+        fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [baseTypes, "", ...augmentations].join("\n"), "utf-8");
         log(`Generated types for ${allFiles.length} API(s): ${allFiles.join(", ")}`);
       } catch (err) {
         log(`Failed to write types: ${err}`);
