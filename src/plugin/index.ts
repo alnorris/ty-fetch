@@ -127,15 +127,13 @@ function init(modules: { typescript: typeof import("typescript") }) {
       fs.mkdirSync(typesDir, { recursive: true });
 
       try {
-        for (const existing of fs.readdirSync(typesDir)) {
-          if (existing.endsWith(".d.ts")) fs.unlinkSync(path.join(typesDir, existing));
-        }
-        const filenames: string[] = [];
+        // Only overwrite files for domains we regenerated — keep existing ones for other domains
         for (const [filename, content] of perDomain.entries()) {
           fs.writeFileSync(path.join(typesDir, filename), content, "utf-8");
-          filenames.push(filename);
         }
-        const augmentations = filenames.map((f) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
+        // Rebuild index.d.ts from ALL generated files (not just the ones we just wrote)
+        const allFiles = fs.readdirSync(typesDir).filter((f: string) => f.endsWith(".d.ts")).sort();
+        const augmentations = allFiles.map((f: string) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
         const pkgDir = path.join(typesDir, "..");
         const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
         // Tighten base method overloads: set TPathParams and TQueryParams to never so the
@@ -144,7 +142,7 @@ function init(modules: { typescript: typeof import("typescript") }) {
           .replace(/options\?: Options<never>\)/g, "options?: Options<never, never, never>)")
           .replace(/options\?: Options\)/g, "options?: Options<unknown, never, never>)");
         fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [tightenedBase, "", ...augmentations].join("\n"), "utf-8");
-        log(`Generated types for ${filenames.length} API(s): ${filenames.join(", ")}`);
+        log(`Generated types for ${allFiles.length} API(s): ${allFiles.join(", ")}`);
       } catch (err) {
         log(`Failed to write types: ${err}`);
       }

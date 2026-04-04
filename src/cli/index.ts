@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as ts from "typescript";
 import {
@@ -7,13 +8,16 @@ import {
   findClosestPath,
   findFetchCalls,
   findSpecPath,
+  getBasePath,
   parseFetchUrl,
   pathExistsInSpec,
   registerSpecs,
   resolveSchemaRef,
+  specCache,
   stripBasePath,
   validateJsonBody,
 } from "../core";
+import { generatePerDomain } from "../generate-types";
 
 interface FileDiagnostic {
   file: string;
@@ -27,11 +31,12 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.includes("--help") || args.includes("-h")) {
-    console.log(`Usage: ty-fetch [tsconfig.json] [--verbose]
+    console.log(`Usage: ty-fetch [tsconfig.json] [--verbose] [--generate]
 
 Validate API calls against OpenAPI specs.
 
 Options:
+  --generate   Generate typed overloads into index.d.ts
   --verbose    Show spec fetching details
   --help, -h   Show this help message`);
     process.exit(0);
@@ -87,6 +92,61 @@ Options:
   // Step 2: Fetch all specs (async, in parallel)
   log(`Found ${allCalls.length} fetch call(s) across ${domains.size} domain(s)`);
   await Promise.all([...domains].map((d) => fetchSpecForDomain(d, log)));
+
+  // Step 2b: Generate types if --generate flag is set
+  if (args.includes("--generate")) {
+    const domainSpecs: Array<{ domain: string; baseUrl: string; basePath: string; spec: any }> = [];
+    for (const [domain, entry] of specCache.entries()) {
+      if (entry.status !== "loaded" || !entry.spec) continue;
+      const basePath = getBasePath(entry.spec);
+      domainSpecs.push({ domain, baseUrl: `https://${domain}`, basePath, spec: entry.spec });
+    }
+
+    const usedUrls: Array<{ domain: string; path: string }> = [];
+    for (const { call } of allCalls) {
+      const parsed = parseFetchUrl(call.url);
+      if (parsed) usedUrls.push(parsed);
+    }
+
+    const perDomain = generatePerDomain(domainSpecs, usedUrls);
+
+    // Resolve the ty-fetch package directory
+    const projectDir = path.dirname(path.resolve(tsconfigPath));
+    let pkgDir: string;
+    try {
+      const pkgJson = require.resolve("ty-fetch/package.json", { paths: [projectDir] });
+      pkgDir = path.dirname(pkgJson);
+    } catch {
+      // Fallback: we might be running from the ty-fetch package itself
+      pkgDir = path.resolve(__dirname, "../..");
+    }
+
+    const typesDir = path.join(pkgDir, "__generated");
+    fs.mkdirSync(typesDir, { recursive: true });
+
+    // Clean old generated files
+    for (const existing of fs.readdirSync(typesDir)) {
+      if (existing.endsWith(".d.ts")) fs.unlinkSync(path.join(typesDir, existing));
+    }
+
+    // Write per-domain files
+    const filenames: string[] = [];
+    for (const [filename, content] of perDomain.entries()) {
+      fs.writeFileSync(path.join(typesDir, filename), content, "utf-8");
+      filenames.push(filename);
+    }
+
+    // Concatenate base types + generated augmentations into index.d.ts
+    const augmentations = filenames.map((f) => fs.readFileSync(path.join(typesDir, f), "utf-8"));
+    const baseTypes = fs.readFileSync(path.join(pkgDir, "base.d.ts"), "utf-8");
+    const tightenedBase = baseTypes
+      .replace(/options\?: Options<never>\)/g, "options?: Options<never, never, never>)")
+      .replace(/options\?: Options\)/g, "options?: Options<unknown, never, never>)");
+    fs.writeFileSync(path.join(pkgDir, "index.d.ts"), [tightenedBase, "", ...augmentations].join("\n"), "utf-8");
+
+    console.log(`Generated types for ${filenames.length} API(s): ${filenames.join(", ")}`);
+    process.exit(0);
+  }
 
   // Step 3: Validate
   const diagnostics: FileDiagnostic[] = [];

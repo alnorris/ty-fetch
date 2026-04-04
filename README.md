@@ -215,6 +215,77 @@ console.log(data.users);
 
 No `.json()` call needed — responses are parsed automatically.
 
+### Error Handling
+
+ty-fetch uses a **discriminated union** — check `error` to narrow the type:
+
+```ts
+const { data, error, response } = await ty.get("https://api.example.com/v1/users/123");
+
+if (error) {
+  // data is undefined here, error is the parsed response body
+  console.log(response.status);  // 404, 422, 500, etc.
+  console.log(error);            // parsed JSON from the API
+  return;
+}
+
+// data is typed here, error is undefined
+console.log(data.name);
+```
+
+**What `error` contains:**
+
+| Scenario | `error` value |
+|---|---|
+| API returns JSON error body | The parsed JSON (e.g. `{ message: "Not found", code: "NOT_FOUND" }`) |
+| API returns non-JSON error | `{ message: "<statusText>" }` |
+| Network failure / DNS error | `fetch()` throws — not caught by ty-fetch (see below) |
+
+The shape of `error` depends on your API. Most APIs return something like `{ message, code }` or `{ error: { message } }`, but ty-fetch gives you whatever the server sent:
+
+```ts
+const { error, response } = await ty.post("https://api.example.com/v1/users", {
+  body: { email: "invalid" },
+});
+
+if (error) {
+  // Status-based handling
+  if (response.status === 422) {
+    // error is whatever your API returns for validation errors
+    console.log(error.errors); // e.g. [{ field: "email", message: "Invalid format" }]
+  } else if (response.status === 401) {
+    redirectToLogin();
+  }
+}
+```
+
+**Network errors** (DNS failure, timeout, no internet) are not API responses — `fetch()` itself throws. Wrap the call in try/catch if you need to handle these:
+
+```ts
+try {
+  const { data, error } = await ty.get("https://api.example.com/v1/users");
+  if (error) {
+    // API responded with non-2xx — server is reachable
+  }
+} catch (e) {
+  // Network-level failure — server is unreachable
+}
+```
+
+**Streaming errors** work differently — `ty.stream()` throws an `HTTPError` on non-2xx responses:
+
+```ts
+try {
+  for await (const event of ty.stream("https://api.example.com/v1/events")) {
+    console.log(event);
+  }
+} catch (e) {
+  if (e instanceof ty.HTTPError) {
+    console.log(e.response.status); // the raw Response is attached
+  }
+}
+```
+
 ### Options
 
 ```ts

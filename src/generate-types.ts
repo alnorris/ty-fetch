@@ -178,20 +178,33 @@ export function generateDtsContent(domainSpecs: DomainSpec[]): string {
           bodyTypeArg = bodyTypeName;
         }
 
+        // Collect from operation-level and path-level parameters
+        const allParams = [...(operation.parameters ?? []), ...((spec.paths[path] as any)?.parameters ?? [])];
+
         // ── Path params type ──
         const pathParamNames = (path.match(/\{(\w+)\}/g) || []).map((p: string) => p.slice(1, -1));
         let pathParamsArg = "never";
         if (pathParamNames.length > 0) {
           const pathParamsTypeName = `${typeName}_PathParams`;
-          const pathProps = pathParamNames.map((n: string) => `${safePropName(n)}: string`).join("; ");
-          typeDefinitions.push(`  type ${pathParamsTypeName} = { ${pathProps} };`);
+          const pathPropLines: string[] = [];
+          for (const n of pathParamNames) {
+            // Look up description from spec parameters
+            const paramSpec = allParams.find((p: any) => {
+              const resolved = p.$ref ? resolveRef(spec, p.$ref) : p;
+              return resolved?.name === n && resolved?.in === "path";
+            });
+            const resolved = paramSpec?.$ref ? resolveRef(spec, paramSpec.$ref) : paramSpec;
+            if (resolved?.description) {
+              pathPropLines.push(`/** ${resolved.description.replace(/\*\//g, "* /")} */`);
+            }
+            pathPropLines.push(`${safePropName(n)}: string;`);
+          }
+          typeDefinitions.push(`  type ${pathParamsTypeName} = { ${pathPropLines.join(" ")} };`);
           pathParamsArg = pathParamsTypeName;
         }
 
         // ── Query params type ──
         const queryParams: Array<{ name: string; type: string; required: boolean; description?: string }> = [];
-        // Collect from operation-level and path-level parameters
-        const allParams = [...(operation.parameters ?? []), ...((spec.paths[path] as any)?.parameters ?? [])];
         for (const param of allParams) {
           const resolved = param.$ref ? resolveRef(spec, param.$ref) : param;
           if (resolved?.in === "query") {
