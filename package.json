@@ -1,6 +1,6 @@
 {
   "name": "ty-fetch",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Automatic TypeScript types for any REST API. No codegen, no manual types — just fetch.",
   "license": "MIT",
   "keywords": [
